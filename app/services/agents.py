@@ -42,6 +42,8 @@ class AgentGateway:
     ) -> T:
         if settings.openai_api_key:
             os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key.get_secret_value())
+        if settings.gemini_api_key:
+            os.environ.setdefault("GEMINI_API_KEY", settings.gemini_api_key.get_secret_value())
         try:
             from pydantic_ai import Agent
         except ImportError as exc:

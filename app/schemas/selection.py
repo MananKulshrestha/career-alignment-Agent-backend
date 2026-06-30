@@ -2,6 +2,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.enums import ResumeLength, StrEnum
 
+from typing import Literal
+
 ALLOWED_RESUME_SECTIONS = {
     "summary",
     "education",
@@ -11,6 +13,16 @@ ALLOWED_RESUME_SECTIONS = {
     "achievements",
     "certifications",
 }
+
+ResumeSection = Literal[
+    "summary",
+    "education",
+    "experience",
+    "projects",
+    "technical_skills",
+    "achievements",
+    "certifications"
+]
 
 
 class RequirementSupportStatus(StrEnum):
@@ -39,9 +51,9 @@ class MissingRequirement(BaseModel):
 class SelectionPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    section_order: list[str] = Field(default_factory=list)
+    section_order: list[ResumeSection] = Field(default_factory=list)
     page_target: ResumeLength = ResumeLength.ONE_PAGE
-    selected_item_ids: dict[str, list[str]] = Field(default_factory=dict)
+    selected_item_ids: dict[ResumeSection, list[str]] = Field(default_factory=dict)
     reasons: list[SelectionReason] = Field(default_factory=list)
     target_keywords_covered: list[str] = Field(default_factory=list)
     missing_requirements: list[MissingRequirement] = Field(default_factory=list)
@@ -52,22 +64,26 @@ class SelectionPlan(BaseModel):
         unknown = set(value) - ALLOWED_RESUME_SECTIONS
         if unknown:
             raise ValueError(f"unknown resume sections: {sorted(unknown)}")
-        if len(value) != len(set(value)):
-            raise ValueError("section_order cannot contain duplicates")
-        return value
+        # Auto-fix: remove duplicates while preserving order
+        seen = set()
+        deduped = []
+        for v in value:
+            if v not in seen:
+                seen.add(v)
+                deduped.append(v)
+        return deduped
 
     @model_validator(mode="after")
     def ensure_selected_sections_are_allowed(self) -> "SelectionPlan":
         unknown = set(self.selected_item_ids) - ALLOWED_RESUME_SECTIONS
         if unknown:
             raise ValueError(f"selected_item_ids contains unknown sections: {sorted(unknown)}")
-        unlisted = {
-            section
-            for section, item_ids in self.selected_item_ids.items()
-            if item_ids and section not in self.section_order
-        }
-        if unlisted:
-            raise ValueError(f"selected sections missing from section_order: {sorted(unlisted)}")
+        
+        # Auto-fix: if the LLM selected items for a section but forgot to add it to section_order, just append it
+        for section, item_ids in self.selected_item_ids.items():
+            if item_ids and section not in self.section_order:
+                self.section_order.append(section)
+                
         return self
 
 
