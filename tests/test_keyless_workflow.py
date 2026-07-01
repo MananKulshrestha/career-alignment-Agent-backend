@@ -6,7 +6,11 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.schemas.api import JobIngestRequest, SubmissionKind, TailoringSessionCreate
 from app.schemas.profile import ProfileItemCreate, ProfileItemKind, ProfileItemPayload
-from app.schemas.selection import SelectionApproval
+from app.schemas.selection import (
+    ImprovementSuggestionCategory,
+    ResumeImprovementSuggestion,
+    SelectionApproval,
+)
 from app.services.job_ingestion import ingest_job, list_jobs
 from app.services.profile_service import add_profile_item
 from app.services.tailoring import (
@@ -83,15 +87,35 @@ async def test_keyless_text_to_resume_content_workflow() -> None:
             session,
             tailoring_session_id=session_read.id,
             approval=SelectionApproval(
-                selection_plan=session_read.selection_plan,
+                selection_plan=session_read.selection_plan.model_copy(
+                    update={
+                        "user_improvement_suggestions": [
+                            ResumeImprovementSuggestion(
+                                category=ImprovementSuggestionCategory.MISSING_METRIC,
+                                message="Add a usage or reliability metric for Job Tracker.",
+                                action="Provide request volume, uptime, users, or latency impact.",
+                                source_item_id="project_backend_tracker",
+                            )
+                        ]
+                    },
+                    deep=True,
+                ),
                 approved_by_user=True,
             ),
         )
         assert approved.template_plan is not None
+        assert approved.selection_plan is not None
+        assert approved.selection_plan.user_improvement_suggestions
+        assert (
+            approved.selection_plan.user_improvement_suggestions[0].source_item_id
+            == "project_backend_tracker"
+        )
 
         generated, content = await generate_resume_content(
             session,
             tailoring_session_id=session_read.id,
         )
         assert generated.resume_content is not None
+        assert generated.selection_plan is not None
+        assert generated.selection_plan.user_improvement_suggestions
         assert content.placeholder_values

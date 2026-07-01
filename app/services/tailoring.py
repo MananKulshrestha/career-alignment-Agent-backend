@@ -291,13 +291,14 @@ def _update_match_tailoring_status(
 
 
 def _session_read(record: TailoringSession) -> TailoringSessionRead:
+    current_selection_plan = record.confirmed_selection_plan or record.selection_plan
     return TailoringSessionRead(
         id=record.id,
         user_id=record.user_id,
         job_id=record.job_id,
         status=record.status,
-        selection_plan=SelectionPlan.model_validate(record.selection_plan)
-        if record.selection_plan
+        selection_plan=SelectionPlan.model_validate(current_selection_plan)
+        if current_selection_plan
         else None,
         template_plan=TemplatePlan.model_validate(record.template_plan)
         if record.template_plan

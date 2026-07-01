@@ -124,6 +124,21 @@ def validate_resume_content(
         placeholder.placeholder_id: placeholder.max_words
         for placeholder in template_plan.placeholders
     }
+    required_placeholders = {
+        placeholder.placeholder_id
+        for placeholder in template_plan.placeholders
+        if placeholder.required
+    }
+    empty_required = [
+        value.placeholder_id
+        for value in resume_content.placeholder_values
+        if value.placeholder_id in required_placeholders and not value.text.strip()
+    ]
+    if empty_required:
+        raise BlockedWorkflowError(
+            f"resume_content contains empty required placeholders: {sorted(empty_required)}"
+        )
+
     too_long = [
         value.placeholder_id
         for value in resume_content.placeholder_values

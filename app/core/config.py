@@ -34,9 +34,9 @@ class Settings(BaseSettings):
     enable_llm: bool = False
     openai_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
-    cheap_model: str = "openai:gpt-5.2"
-    reliable_model: str = "openai:gpt-5.2"
-    writing_model: str = "openai:gpt-5.2"
+    cheap_model: str = "openai:gpt-5-nano"
+    reliable_model: str = "openai:gpt-5-nano"
+    writing_model: str = "openai:gpt-5-nano"
     max_model_retries: int = Field(default=2, ge=0, le=5)
 
     http_timeout_seconds: int = Field(default=15, ge=1, le=60)
@@ -57,7 +57,9 @@ class Settings(BaseSettings):
 
     @property
     def llm_ready(self) -> bool:
-        return self.enable_llm and (self.openai_api_key is not None or self.gemini_api_key is not None)
+        return self.enable_llm and (
+            self.openai_api_key is not None or self.gemini_api_key is not None
+        )
 
 
 @lru_cache

@@ -16,6 +16,7 @@ from app.schemas.match import AdjacentEvidence, MatchAnalysis, RequirementGap
 from app.schemas.profile import ProfileItemRead, UserPreference
 from app.schemas.resume import (
     ClaimStrength,
+    ContentType,
     PlaceholderValue,
     ResumeContent,
     ResumeWarning,
@@ -23,8 +24,12 @@ from app.schemas.resume import (
     TemplatePlan,
 )
 from app.schemas.selection import (
+    ImprovementSuggestionCategory,
+    ImprovementSuggestionSeverity,
     MissingRequirement,
     RequirementSupportStatus,
+    ResumeImprovementSuggestion,
+    SectionEntrySelection,
     SelectionPlan,
     SelectionReason,
 )
@@ -296,9 +301,33 @@ def deterministic_selection(
         if skill.name.lower() not in profile_text
     ]
     missing_names = {gap.requirement.lower() for gap in missing}
+    selected_entries = {
+        section: [
+            SectionEntrySelection(
+                source_item_id=source_item_id,
+                bullet_count=2 if section in {"experience", "projects"} else 0,
+            )
+            for source_item_id in source_ids
+        ]
+        for section, source_ids in selected.items()
+    }
+    suggestions = [
+        ResumeImprovementSuggestion(
+            severity=ImprovementSuggestionSeverity.WARNING,
+            category=ImprovementSuggestionCategory.UNSUPPORTED_REQUIREMENT,
+            message=f"No direct profile evidence was found for {gap.requirement}.",
+            action=(
+                "Add a project, job responsibility, certification, or measurable example "
+                "before claiming this requirement."
+            ),
+            requirement=gap.requirement,
+        )
+        for gap in missing
+    ]
     return SelectionPlan(
         section_order=section_order or ["education", "projects", "technical_skills"],
         selected_item_ids=selected,
+        selected_entries=selected_entries,
         reasons=reasons,
         target_keywords_covered=[
             skill.name
@@ -306,6 +335,7 @@ def deterministic_selection(
             if skill.name.lower() not in missing_names
         ],
         missing_requirements=missing,
+        user_improvement_suggestions=suggestions,
     )
 
 
@@ -318,12 +348,12 @@ def deterministic_resume_content(
         item = by_source_id.get(placeholder.source_item_id)
         if not item:
             continue
-        base = item.payload.description.strip().split(".")[0]
+        base = _deterministic_placeholder_text(placeholder, item)
         words = base.split()[: placeholder.max_words]
         values.append(
             PlaceholderValue(
                 placeholder_id=placeholder.placeholder_id,
-                text=" ".join(words).rstrip(".") + ".",
+                text=_finalize_placeholder_text(" ".join(words), placeholder.content_type),
                 source_item_ids=[item.source_item_id],
                 claim_strength=ClaimStrength.BALANCED,
             )
@@ -337,3 +367,109 @@ def deterministic_resume_content(
             )
         ],
     )
+
+
+def _deterministic_placeholder_text(placeholder, item: ProfileItemRead) -> str:
+    payload = item.payload
+    section = placeholder.section or placeholder.placeholder_id.split("_", 1)[0]
+
+    if placeholder.content_type == ContentType.ENTRY_TITLE:
+        if section == "education":
+            return payload.degree or payload.title or _fallback_title(payload.description)
+        if section == "experience":
+            return payload.job_title or payload.title or _fallback_title(payload.description)
+        return payload.title or _fallback_title(payload.description)
+
+    if placeholder.content_type == ContentType.ENTRY_ORGANIZATION:
+        if section == "education":
+            return payload.school or payload.organization or ""
+        if section == "experience":
+            return payload.employer or payload.organization or ""
+        return payload.issuer or payload.organization or ""
+
+    if placeholder.content_type == ContentType.LOCATION:
+        return payload.location or ""
+
+    if placeholder.content_type == ContentType.DATE_RANGE:
+        return _date_range(payload)
+
+    if placeholder.content_type == ContentType.TECH_STACK:
+        return _joined(payload.tech_stack or payload.skills or payload.tools_used)
+
+    if placeholder.content_type == ContentType.SKILL_LIST:
+        return _joined(payload.skills or payload.tools_used or payload.tech_stack)
+
+    if placeholder.content_type == ContentType.SUMMARY:
+        return payload.description.strip()
+
+    if placeholder.content_type == ContentType.RESUME_BULLET:
+        return _bullet_text(placeholder.placeholder_id, item)
+
+    return payload.description.strip()
+
+
+def _bullet_text(placeholder_id: str, item: ProfileItemRead) -> str:
+    payload = item.payload
+    index = _bullet_index(placeholder_id)
+    if index == 1:
+        return payload.description.strip().split(".")[0]
+
+    candidates = [
+        *payload.metrics,
+        *payload.outcomes,
+        payload.measurable_impact,
+        *payload.achievements,
+        *payload.responsibilities,
+        *payload.features,
+        payload.architecture,
+        payload.constraints_tradeoffs,
+    ]
+    non_empty = [candidate for candidate in candidates if candidate and str(candidate).strip()]
+    if index - 2 < len(non_empty):
+        return str(non_empty[index - 2]).strip().rstrip(".")
+
+    skills = payload.skills or payload.tech_stack or payload.tools_used
+    if skills:
+        return f"Used {', '.join(skills[:6])} to support the work"
+    return payload.description.strip().split(".")[0]
+
+
+def _bullet_index(placeholder_id: str) -> int:
+    try:
+        return int(placeholder_id.rsplit("_", 1)[-1])
+    except ValueError:
+        return 1
+
+
+def _date_range(payload) -> str:
+    if payload.credential_date:
+        return _format_date(payload.credential_date)
+    if payload.start_date and payload.end_date:
+        return f"{_format_date(payload.start_date)} -- {_format_date(payload.end_date)}"
+    if payload.start_date:
+        return f"{_format_date(payload.start_date)} -- Present"
+    if payload.end_date:
+        return _format_date(payload.end_date)
+    return ""
+
+
+def _format_date(value) -> str:
+    return value.strftime("%b %Y")
+
+
+def _joined(values: list[str]) -> str:
+    return ", ".join(value.strip() for value in values if value.strip())
+
+
+def _fallback_title(description: str) -> str:
+    words = description.strip().split()[:4]
+    return " ".join(words) or "Profile Item"
+
+
+def _finalize_placeholder_text(text: str, content_type: ContentType) -> str:
+    clean = text.strip()
+    if not clean:
+        return ""
+    if content_type == ContentType.RESUME_BULLET:
+        return clean.rstrip(".") + "."
+    return clean

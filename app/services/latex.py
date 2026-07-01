@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import textwrap
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
@@ -22,6 +23,40 @@ LATEX_SPECIAL_CHARS = {
     "^": r"\textasciicircum{}",
 }
 
+PDF_PAGE_WIDTH = 612.0
+PDF_PAGE_HEIGHT = 792.0
+PDF_MARGIN_X = 45.0
+PDF_TOP_Y = 744.0
+PDF_BOTTOM_Y = 54.0
+PDF_TEXT_RIGHT = PDF_PAGE_WIDTH - PDF_MARGIN_X
+
+
+@dataclass(frozen=True)
+class _PdfText:
+    text: str
+    x_position: float
+    y_position: float
+    font_size: float
+    font_name: str = "F1"
+
+
+@dataclass(frozen=True)
+class _PdfRule:
+    x_start: float
+    y_position: float
+    x_end: float
+    line_width: float = 0.35
+
+
+@dataclass(frozen=True)
+class _PdfDot:
+    x_position: float
+    y_position: float
+    radius: float = 1.35
+
+
+_PdfDrawOp = _PdfText | _PdfRule | _PdfDot
+
 
 def escape_latex(value: str) -> str:
     return "".join(LATEX_SPECIAL_CHARS.get(char, char) for char in value)
@@ -33,53 +68,289 @@ def assemble_latex(
     resume_content: ResumeContent,
     profile_items: list[ProfileItemRead],
 ) -> str:
-    profile_by_id = {item.source_item_id: item for item in profile_items}
-    content_by_placeholder = {
-        value.placeholder_id: escape_latex(value.text)
-        for value in resume_content.placeholder_values
-    }
-    lines = [
-        r"\documentclass[10pt,letterpaper]{article}",
-        r"\usepackage[margin=0.55in]{geometry}",
-        r"\usepackage[T1]{fontenc}",
-        r"\usepackage{enumitem}",
-        r"\usepackage[hidelinks]{hyperref}",
-        r"\setlength{\parindent}{0pt}",
-        r"\setlist[itemize]{leftmargin=*, itemsep=2pt, topsep=2pt}",
-        r"\begin{document}",
-        r"\begin{center}",
-        r"{\LARGE Candidate Name}\\",
-        r"\href{mailto:email@example.com}{email@example.com} \quad LinkedIn \quad GitHub",
-        r"\end{center}",
-    ]
+    content_by_placeholder = _content_by_placeholder(resume_content, escape=True)
+    lines = _jake_preamble()
+    lines.extend(_jake_heading())
 
     for section in template_plan.section_order:
-        section_placeholders = [
-            placeholder
-            for placeholder in template_plan.placeholders
-            if placeholder.placeholder_id.startswith(f"{section}_")
-        ]
+        section_placeholders = _section_placeholders(template_plan, section)
         if not section_placeholders:
             continue
-        lines.extend(
-            [
-                r"\vspace{4pt}",
-                rf"\textbf{{{escape_latex(_section_label(section))}}}",
-                r"\begin{itemize}",
-            ]
-        )
-        for placeholder in section_placeholders:
-            item = profile_by_id.get(placeholder.source_item_id)
-            prefix = ""
-            if item and item.payload.title:
-                prefix = rf"\textbf{{{escape_latex(item.payload.title)}}}: "
-            text = content_by_placeholder.get(placeholder.placeholder_id, "")
-            if text:
-                lines.append(rf"\item {prefix}{text}")
-        lines.append(r"\end{itemize}")
+        if section == "technical_skills":
+            lines.extend(_render_skills_section(section_placeholders, content_by_placeholder))
+        elif section == "summary":
+            lines.extend(_render_summary_section(section_placeholders, content_by_placeholder))
+        elif section == "education" or section == "experience":
+            lines.extend(
+                _render_subheading_section(section, section_placeholders, content_by_placeholder)
+            )
+        elif section == "projects":
+            lines.extend(_render_projects_section(section_placeholders, content_by_placeholder))
+        elif section in {"achievements", "certifications"}:
+            lines.extend(
+                _render_project_like_section(section, section_placeholders, content_by_placeholder)
+            )
 
     lines.append(r"\end{document}")
     return "\n".join(lines)
+
+
+def _jake_preamble() -> list[str]:
+    return [
+        r"\documentclass[letterpaper,11pt]{article}",
+        "",
+        r"\usepackage{latexsym}",
+        r"\usepackage[empty]{fullpage}",
+        r"\usepackage{titlesec}",
+        r"\usepackage{marvosym}",
+        r"\usepackage[usenames,dvipsnames]{color}",
+        r"\usepackage{verbatim}",
+        r"\usepackage{enumitem}",
+        r"\usepackage[hidelinks]{hyperref}",
+        r"\usepackage{fancyhdr}",
+        r"\usepackage[english]{babel}",
+        r"\usepackage{tabularx}",
+        r"\input{glyphtounicode}",
+        "",
+        r"\pagestyle{fancy}",
+        r"\fancyhf{}",
+        r"\fancyfoot{}",
+        r"\renewcommand{\headrulewidth}{0pt}",
+        r"\renewcommand{\footrulewidth}{0pt}",
+        "",
+        r"\addtolength{\oddsidemargin}{-0.5in}",
+        r"\addtolength{\evensidemargin}{-0.5in}",
+        r"\addtolength{\textwidth}{1in}",
+        r"\addtolength{\topmargin}{-.5in}",
+        r"\addtolength{\textheight}{1.0in}",
+        "",
+        r"\urlstyle{same}",
+        r"\raggedbottom",
+        r"\raggedright",
+        r"\setlength{\tabcolsep}{0in}",
+        "",
+        r"\titleformat{\section}{",
+        r"  \vspace{-4pt}\scshape\raggedright\large",
+        r"}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]",
+        "",
+        r"\pdfgentounicode=1",
+        "",
+        r"\newcommand{\resumeItem}[1]{",
+        r"  \item\small{",
+        r"    {#1 \vspace{-2pt}}",
+        r"  }",
+        r"}",
+        "",
+        r"\newcommand{\resumeSubheading}[4]{",
+        r"  \vspace{-2pt}\item",
+        r"    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}",
+        r"      \textbf{#1} & #2 \\",
+        r"      \textit{\small#3} & \textit{\small #4} \\",
+        r"    \end{tabular*}\vspace{-7pt}",
+        r"}",
+        "",
+        r"\newcommand{\resumeProjectHeading}[2]{",
+        r"    \item",
+        r"    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}",
+        r"      \small#1 & #2 \\",
+        r"    \end{tabular*}\vspace{-7pt}",
+        r"}",
+        "",
+        r"\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}",
+        r"\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}",
+        r"\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}",
+        r"\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}",
+        r"\newcommand{\resumeItemListStart}{\begin{itemize}}",
+        r"\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}",
+        "",
+        r"\begin{document}",
+    ]
+
+
+def _jake_heading() -> list[str]:
+    return [
+        r"\begin{center}",
+        r"    \textbf{\Huge \scshape Candidate Name} \\ \vspace{1pt}",
+        r"    \small \href{mailto:email@example.com}{\underline{email@example.com}} $|$",
+        r"    \href{https://linkedin.com/in/...}{\underline{linkedin.com/in/...}} $|$",
+        r"    \href{https://github.com/...}{\underline{github.com/...}}",
+        r"\end{center}",
+        "",
+    ]
+
+
+def _content_by_placeholder(resume_content: ResumeContent, *, escape: bool) -> dict[str, str]:
+    if escape:
+        return {
+            value.placeholder_id: escape_latex(value.text)
+            for value in resume_content.placeholder_values
+        }
+    return {value.placeholder_id: value.text for value in resume_content.placeholder_values}
+
+
+def _section_placeholders(template_plan: TemplatePlan, section: str):
+    return [
+        placeholder
+        for placeholder in template_plan.placeholders
+        if placeholder.section == section or placeholder.placeholder_id.startswith(f"{section}_")
+    ]
+
+
+def _group_by_entry(placeholders):
+    grouped: dict[str, list] = {}
+    for placeholder in placeholders:
+        entry_id = placeholder.entry_id or placeholder.source_item_id
+        grouped.setdefault(entry_id, []).append(placeholder)
+    return grouped
+
+
+def _render_summary_section(placeholders, content_by_placeholder: dict[str, str]) -> list[str]:
+    summaries = [
+        content_by_placeholder.get(placeholder.placeholder_id, "")
+        for placeholder in placeholders
+        if content_by_placeholder.get(placeholder.placeholder_id, "")
+    ]
+    if not summaries:
+        return []
+    return [
+        r"\section{Summary}",
+        r"\small{" + " ".join(summaries) + r"}",
+        "",
+    ]
+
+
+def _render_subheading_section(
+    section: str, placeholders, content_by_placeholder: dict[str, str]
+) -> list[str]:
+    lines = [
+        rf"\section{{{escape_latex(_section_label(section))}}}",
+        r"  \resumeSubHeadingListStart",
+    ]
+    for entry_placeholders in _group_by_entry(placeholders).values():
+        title = _first_content(entry_placeholders, content_by_placeholder, "entry_title")
+        organization = _first_content(
+            entry_placeholders, content_by_placeholder, "entry_organization"
+        )
+        location = _first_content(entry_placeholders, content_by_placeholder, "location")
+        dates = _first_content(entry_placeholders, content_by_placeholder, "date_range")
+        if section == "education":
+            first_left = organization
+            first_right = location
+            second_left = title
+            second_right = dates
+        else:
+            first_left = title
+            first_right = dates
+            second_left = organization
+            second_right = location
+
+        lines.extend(
+            [
+                r"    \resumeSubheading",
+                rf"      {{{first_left}}}{{{first_right}}}",
+                rf"      {{{second_left}}}{{{second_right}}}",
+            ]
+        )
+        bullets = _bullet_contents(entry_placeholders, content_by_placeholder)
+        if bullets:
+            lines.append(r"      \resumeItemListStart")
+            lines.extend(rf"        \resumeItem{{{bullet}}}" for bullet in bullets)
+            lines.append(r"      \resumeItemListEnd")
+    lines.extend([r"  \resumeSubHeadingListEnd", ""])
+    return lines
+
+
+def _render_projects_section(placeholders, content_by_placeholder: dict[str, str]) -> list[str]:
+    lines = [r"\section{Projects}", r"    \resumeSubHeadingListStart"]
+    for entry_placeholders in _group_by_entry(placeholders).values():
+        title = _first_content(entry_placeholders, content_by_placeholder, "entry_title")
+        tech_stack = _first_content(entry_placeholders, content_by_placeholder, "tech_stack")
+        dates = _first_content(entry_placeholders, content_by_placeholder, "date_range")
+        heading = rf"\textbf{{{title}}}"
+        if tech_stack:
+            heading = rf"{heading} $|$ \emph{{{tech_stack}}}"
+        lines.extend(
+            [
+                r"      \resumeProjectHeading",
+                rf"          {{{heading}}}{{{dates}}}",
+            ]
+        )
+        bullets = _bullet_contents(entry_placeholders, content_by_placeholder)
+        if bullets:
+            lines.append(r"          \resumeItemListStart")
+            lines.extend(rf"            \resumeItem{{{bullet}}}" for bullet in bullets)
+            lines.append(r"          \resumeItemListEnd")
+    lines.extend([r"    \resumeSubHeadingListEnd", ""])
+    return lines
+
+
+def _render_project_like_section(
+    section: str, placeholders, content_by_placeholder: dict[str, str]
+) -> list[str]:
+    lines = [
+        rf"\section{{{escape_latex(_section_label(section))}}}",
+        r"    \resumeSubHeadingListStart",
+    ]
+    for entry_placeholders in _group_by_entry(placeholders).values():
+        title = _first_content(entry_placeholders, content_by_placeholder, "entry_title")
+        organization = _first_content(
+            entry_placeholders, content_by_placeholder, "entry_organization"
+        )
+        dates = _first_content(entry_placeholders, content_by_placeholder, "date_range")
+        heading = rf"\textbf{{{title}}}"
+        if organization:
+            heading = rf"{heading} $|$ \emph{{{organization}}}"
+        lines.extend(
+            [
+                r"      \resumeProjectHeading",
+                rf"          {{{heading}}}{{{dates}}}",
+            ]
+        )
+        bullets = _bullet_contents(entry_placeholders, content_by_placeholder)
+        if bullets:
+            lines.append(r"          \resumeItemListStart")
+            lines.extend(rf"            \resumeItem{{{bullet}}}" for bullet in bullets)
+            lines.append(r"          \resumeItemListEnd")
+    lines.extend([r"    \resumeSubHeadingListEnd", ""])
+    return lines
+
+
+def _render_skills_section(placeholders, content_by_placeholder: dict[str, str]) -> list[str]:
+    skill_lines: list[str] = []
+    for placeholder in placeholders:
+        text = content_by_placeholder.get(placeholder.placeholder_id, "")
+        if not text:
+            continue
+        label = escape_latex(placeholder.field_label or "Skills")
+        skill_lines.append(rf"     \textbf{{{label}}}{{: {text}}}")
+    if not skill_lines:
+        return []
+    joined_skill_lines = (r" \\" + "\n").join(skill_lines)
+    return [
+        r"\section{Technical Skills}",
+        r" \begin{itemize}[leftmargin=0.15in, label={}]",
+        r"    \small{\item{",
+        joined_skill_lines,
+        r"    }}",
+        r" \end{itemize}",
+        "",
+    ]
+
+
+def _first_content(placeholders, content_by_placeholder: dict[str, str], content_type: str) -> str:
+    for placeholder in placeholders:
+        if placeholder.content_type == content_type:
+            return content_by_placeholder.get(placeholder.placeholder_id, "")
+    return ""
+
+
+def _bullet_contents(placeholders, content_by_placeholder: dict[str, str]) -> list[str]:
+    return [
+        content_by_placeholder.get(placeholder.placeholder_id, "")
+        for placeholder in placeholders
+        if placeholder.content_type == "resume_bullet"
+        and content_by_placeholder.get(placeholder.placeholder_id, "")
+    ]
 
 
 def compile_resume(
@@ -168,98 +439,258 @@ def render_fallback_pdf(
     resume_content: ResumeContent,
     profile_items: list[ProfileItemRead],
 ) -> int:
-    """Render a plain PDF when a TeX distribution is not installed."""
+    """Render a Jake-style PDF when a TeX distribution is not installed."""
 
-    line_specs = _fallback_line_specs(
+    pages = _jake_fallback_pages(
         template_plan=template_plan,
         resume_content=resume_content,
         profile_items=profile_items,
     )
-    pages = _paginate_pdf_lines(line_specs)
-    _write_simple_pdf(pdf_path, pages)
+    _write_jake_fallback_pdf(pdf_path, pages)
     log_path.write_text(
-        "LaTeX engine was unavailable; generated a plain ATS-readable PDF fallback.\n",
+        "LaTeX engine was unavailable; generated a Jake-style ATS-readable PDF fallback.\n",
         encoding="utf-8",
     )
     return len(pages)
 
 
-def _fallback_line_specs(
+class _JakeFallbackPdfBuilder:
+    def __init__(self) -> None:
+        self.pages: list[list[_PdfDrawOp]] = [[]]
+        self.y_position = PDF_TOP_Y
+
+    def center_text(
+        self, text: str, *, font_size: float, font_name: str = "F1", leading: float
+    ) -> None:
+        x_position = (PDF_PAGE_WIDTH - _pdf_text_width(text, font_size, font_name)) / 2
+        self.text(
+            text,
+            x_position=max(PDF_MARGIN_X, x_position),
+            font_size=font_size,
+            font_name=font_name,
+            leading=leading,
+        )
+
+    def text(
+        self,
+        text: str,
+        *,
+        x_position: float = PDF_MARGIN_X,
+        font_size: float = 10,
+        font_name: str = "F1",
+        leading: float = 12,
+    ) -> None:
+        if not text:
+            return
+        self.ensure_space(leading)
+        self.pages[-1].append(
+            _PdfText(
+                text=text,
+                x_position=x_position,
+                y_position=self.y_position,
+                font_size=font_size,
+                font_name=font_name,
+            )
+        )
+        self.y_position -= leading
+
+    def paired_text(
+        self,
+        left_text: str,
+        right_text: str,
+        *,
+        left_font: str = "F1",
+        right_font: str = "F1",
+        font_size: float = 10,
+        leading: float = 11,
+    ) -> None:
+        if not left_text and not right_text:
+            return
+        self.ensure_space(leading)
+        if left_text:
+            self.pages[-1].append(
+                _PdfText(left_text, PDF_MARGIN_X + 15, self.y_position, font_size, left_font)
+            )
+        if right_text:
+            self.pages[-1].append(
+                _PdfText(
+                    right_text,
+                    PDF_TEXT_RIGHT - _pdf_text_width(right_text, font_size, right_font),
+                    self.y_position,
+                    font_size,
+                    right_font,
+                )
+            )
+        self.y_position -= leading
+
+    def text_runs(
+        self,
+        runs: list[tuple[str, str]],
+        *,
+        right_text: str = "",
+        font_size: float = 10,
+        leading: float = 12,
+    ) -> None:
+        if not any(text for text, _ in runs) and not right_text:
+            return
+        self.ensure_space(leading)
+        x_position = PDF_MARGIN_X + 15
+        right_edge = PDF_TEXT_RIGHT
+        if right_text:
+            right_x = PDF_TEXT_RIGHT - _pdf_text_width(right_text, font_size, "F1")
+            self.pages[-1].append(_PdfText(right_text, right_x, self.y_position, font_size, "F1"))
+            right_edge = right_x - 12
+        for text, font_name in runs:
+            if not text:
+                continue
+            available_width = max(24.0, right_edge - x_position)
+            clipped_text = _clip_pdf_text(text, available_width, font_size, font_name)
+            self.pages[-1].append(
+                _PdfText(clipped_text, x_position, self.y_position, font_size, font_name)
+            )
+            x_position += _pdf_text_width(clipped_text, font_size, font_name)
+        self.y_position -= leading
+
+    def section(self, label: str) -> None:
+        self.ensure_space(24)
+        self.pages[-1].append(_PdfText(label, PDF_MARGIN_X, self.y_position, 12, "F1"))
+        self.pages[-1].append(_PdfRule(PDF_MARGIN_X, self.y_position - 3, PDF_TEXT_RIGHT))
+        self.y_position -= 16
+
+    def paragraph(self, text: str) -> None:
+        for index, line in enumerate(_wrap_pdf_text(text, width_points=500, font_size=9.5)):
+            self.text(
+                line,
+                x_position=PDF_MARGIN_X + 15,
+                font_size=9.5,
+                font_name="F1",
+                leading=11 if index else 12,
+            )
+
+    def bullet(self, text: str) -> None:
+        wrapped = _wrap_pdf_text(text, width_points=470, font_size=9.5)
+        for index, line in enumerate(wrapped):
+            self.ensure_space(11)
+            if index == 0:
+                self.pages[-1].append(_PdfDot(PDF_MARGIN_X + 33, self.y_position + 3.2))
+            self.pages[-1].append(_PdfText(line, PDF_MARGIN_X + 43, self.y_position, 9.5, "F1"))
+            self.y_position -= 11
+
+    def small_gap(self, amount: float = 3) -> None:
+        self.y_position -= amount
+
+    def ensure_space(self, required_height: float) -> None:
+        if self.y_position - required_height >= PDF_BOTTOM_Y:
+            return
+        self.pages.append([])
+        self.y_position = PDF_TOP_Y
+
+
+def _jake_fallback_pages(
     *,
     template_plan: TemplatePlan,
     resume_content: ResumeContent,
     profile_items: list[ProfileItemRead],
-) -> list[tuple[str, float, int]]:
-    profile_by_id = {item.source_item_id: item for item in profile_items}
-    content_by_placeholder = {
-        value.placeholder_id: value.text for value in resume_content.placeholder_values
-    }
-    lines: list[tuple[str, float, int]] = [
-        ("Candidate Name", 54, 16),
-        ("email@example.com | LinkedIn | GitHub", 54, 10),
-        ("", 54, 8),
-    ]
+) -> list[list[_PdfDrawOp]]:
+    content_by_placeholder = _content_by_placeholder(resume_content, escape=False)
+    builder = _JakeFallbackPdfBuilder()
+    builder.center_text("Candidate Name", font_size=24, font_name="F2", leading=18)
+    builder.center_text(
+        "email@example.com | linkedin.com/in/... | github.com/...",
+        font_size=9,
+        font_name="F1",
+        leading=22,
+    )
 
     for section in template_plan.section_order:
-        section_placeholders = [
-            placeholder
-            for placeholder in template_plan.placeholders
-            if placeholder.placeholder_id.startswith(f"{section}_")
-        ]
+        section_placeholders = _section_placeholders(template_plan, section)
         if not section_placeholders:
             continue
-        lines.append((_section_label(section).upper(), 54, 12))
-        for placeholder in section_placeholders:
-            text = content_by_placeholder.get(placeholder.placeholder_id, "")
-            if not text:
-                continue
-            item = profile_by_id.get(placeholder.source_item_id)
-            prefix = f"{item.payload.title}: " if item and item.payload.title else ""
-            lines.extend(_wrap_pdf_bullet(f"{prefix}{text}"))
-        lines.append(("", 54, 8))
-    return lines
+        builder.section(_section_label(section))
 
-
-def _wrap_pdf_bullet(text: str) -> list[tuple[str, float, int]]:
-    wrapped = textwrap.wrap(
-        " ".join(text.split()),
-        width=92,
-        break_long_words=True,
-        replace_whitespace=True,
-    ) or [text]
-    return [
-        (f"- {line}" if index == 0 else f"  {line}", 60, 10) for index, line in enumerate(wrapped)
-    ]
-
-
-def _paginate_pdf_lines(
-    line_specs: list[tuple[str, float, int]],
-) -> list[list[tuple[str, float, float, int]]]:
-    pages: list[list[tuple[str, float, float, int]]] = []
-    current_page: list[tuple[str, float, float, int]] = []
-    y_position = 742.0
-
-    for text, x_position, font_size in line_specs:
-        if not text:
-            y_position -= 8
+        if section == "technical_skills":
+            for placeholder in section_placeholders:
+                text = content_by_placeholder.get(placeholder.placeholder_id, "")
+                if text:
+                    label = placeholder.field_label or "Skills"
+                    builder.text_runs(
+                        [(f"{label}: ", "F2"), (f" {text}", "F1")],
+                        font_size=9.5,
+                        leading=11,
+                    )
+            builder.small_gap(4)
             continue
-        if y_position < 54:
-            pages.append(current_page)
-            current_page = []
-            y_position = 742.0
-        current_page.append((text, x_position, y_position, font_size))
-        y_position -= font_size + 4
 
-    if current_page:
-        pages.append(current_page)
-    return pages or [[("Candidate Name", 54, 742, 16)]]
+        if section == "summary":
+            for placeholder in section_placeholders:
+                text = content_by_placeholder.get(placeholder.placeholder_id, "")
+                if text:
+                    builder.paragraph(text)
+            builder.small_gap(4)
+            continue
+
+        for entry_placeholders in _group_by_entry(section_placeholders).values():
+            title = _first_content(entry_placeholders, content_by_placeholder, "entry_title")
+            organization = _first_content(
+                entry_placeholders, content_by_placeholder, "entry_organization"
+            )
+            location = _first_content(entry_placeholders, content_by_placeholder, "location")
+            dates = _first_content(entry_placeholders, content_by_placeholder, "date_range")
+            tech_stack = _first_content(entry_placeholders, content_by_placeholder, "tech_stack")
+
+            if section == "education":
+                builder.paired_text(
+                    organization,
+                    location,
+                    left_font="F2",
+                    right_font="F1",
+                    font_size=10,
+                )
+                builder.paired_text(
+                    title,
+                    dates,
+                    left_font="F3",
+                    right_font="F3",
+                    font_size=9.5,
+                )
+            elif section == "experience":
+                builder.paired_text(title, dates, left_font="F2", font_size=10)
+                builder.paired_text(
+                    organization,
+                    location,
+                    left_font="F3",
+                    right_font="F3",
+                    font_size=9.5,
+                )
+            elif section == "projects":
+                runs = [(title, "F2")]
+                if tech_stack:
+                    runs.extend([(" | ", "F1"), (tech_stack, "F3")])
+                builder.text_runs(runs, right_text=dates, font_size=10, leading=12)
+            else:
+                runs = [(title, "F2")]
+                if organization:
+                    runs.extend([(" | ", "F1"), (organization, "F3")])
+                builder.text_runs(runs, right_text=dates, font_size=10, leading=12)
+
+            for text in _bullet_contents(entry_placeholders, content_by_placeholder):
+                if not text:
+                    continue
+                builder.bullet(text)
+            builder.small_gap(3)
+        builder.small_gap(4)
+    if any(builder.pages):
+        return builder.pages
+    return [[_PdfText("Candidate Name", 244, 744, 24, "F2")]]
 
 
-def _write_simple_pdf(pdf_path: Path, pages: list[list[tuple[str, float, float, int]]]) -> None:
+def _write_jake_fallback_pdf(pdf_path: Path, pages: list[list[_PdfDrawOp]]) -> None:
     objects: list[bytes | None] = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         None,
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding /WinAnsiEncoding >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Times-Italic /Encoding /WinAnsiEncoding >>",
     ]
     page_refs: list[str] = []
     for page in pages:
@@ -268,16 +699,15 @@ def _write_simple_pdf(pdf_path: Path, pages: list[list[tuple[str, float, float, 
         page_refs.append(f"{page_object_number} 0 R")
         objects.append(
             (
-                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-                f"/Resources << /Font << /F1 3 0 R >> >> "
+                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PDF_PAGE_WIDTH:.0f} "
+                f"{PDF_PAGE_HEIGHT:.0f}] /Resources << /Font << /F1 3 0 R "
+                f"/F2 4 0 R /F3 5 0 R >> >> "
                 f"/Contents {content_object_number} 0 R >>"
             ).encode("ascii")
         )
-        stream = "\n".join(
-            f"BT /F1 {font_size} Tf {x_position:.1f} {y_position:.1f} Td "
-            f"({_escape_pdf_text(text)}) Tj ET"
-            for text, x_position, y_position, font_size in page
-        ).encode("latin-1", errors="replace")
+        stream = "\n".join(_pdf_draw_command(item) for item in page).encode(
+            "cp1252", errors="replace"
+        )
         objects.append(
             b"<< /Length "
             + str(len(stream)).encode("ascii")
@@ -290,6 +720,70 @@ def _write_simple_pdf(pdf_path: Path, pages: list[list[tuple[str, float, float, 
         f"<< /Type /Pages /Kids [{' '.join(page_refs)}] /Count {len(page_refs)} >>"
     ).encode("ascii")
     _write_pdf_objects(pdf_path, [item for item in objects if item is not None])
+
+
+def _pdf_draw_command(item: _PdfDrawOp) -> str:
+    if isinstance(item, _PdfRule):
+        return (
+            f"{item.line_width:.2f} w {item.x_start:.1f} {item.y_position:.1f} m "
+            f"{item.x_end:.1f} {item.y_position:.1f} l S"
+        )
+    if isinstance(item, _PdfDot):
+        radius = item.radius
+        kappa = 0.55228475 * radius
+        x_position = item.x_position
+        y_position = item.y_position
+        return (
+            f"{x_position + radius:.2f} {y_position:.2f} m "
+            f"{x_position + radius:.2f} {y_position + kappa:.2f} "
+            f"{x_position + kappa:.2f} {y_position + radius:.2f} "
+            f"{x_position:.2f} {y_position + radius:.2f} c "
+            f"{x_position - kappa:.2f} {y_position + radius:.2f} "
+            f"{x_position - radius:.2f} {y_position + kappa:.2f} "
+            f"{x_position - radius:.2f} {y_position:.2f} c "
+            f"{x_position - radius:.2f} {y_position - kappa:.2f} "
+            f"{x_position - kappa:.2f} {y_position - radius:.2f} "
+            f"{x_position:.2f} {y_position - radius:.2f} c "
+            f"{x_position + kappa:.2f} {y_position - radius:.2f} "
+            f"{x_position + radius:.2f} {y_position - kappa:.2f} "
+            f"{x_position + radius:.2f} {y_position:.2f} c f"
+        )
+    return (
+        f"BT /{item.font_name} {item.font_size:.1f} Tf "
+        f"{item.x_position:.1f} {item.y_position:.1f} Td "
+        f"({_escape_pdf_text(item.text)}) Tj ET"
+    )
+
+
+def _pdf_text_width(text: str, font_size: float, font_name: str = "F1") -> float:
+    if not text:
+        return 0.0
+    width_factor = {"F1": 0.46, "F2": 0.5, "F3": 0.44}.get(font_name, 0.46)
+    narrow_chars = sum(1 for char in text if char in " .,;:|!/ilI[]()")
+    wide_chars = sum(1 for char in text if char in "MW@#%&")
+    adjusted_length = len(text) - (narrow_chars * 0.28) + (wide_chars * 0.28)
+    return max(0.0, adjusted_length * font_size * width_factor)
+
+
+def _clip_pdf_text(text: str, width_points: float, font_size: float, font_name: str) -> str:
+    if _pdf_text_width(text, font_size, font_name) <= width_points:
+        return text
+    clipped = text
+    while clipped and _pdf_text_width(f"{clipped}...", font_size, font_name) > width_points:
+        clipped = clipped[:-1]
+    return f"{clipped.rstrip()}..." if clipped else ""
+
+
+def _wrap_pdf_text(text: str, *, width_points: float, font_size: float) -> list[str]:
+    normalized = " ".join(text.split())
+    average_char_width = max(3.8, font_size * 0.47)
+    character_width = max(24, int(width_points / average_char_width))
+    return textwrap.wrap(
+        normalized,
+        width=character_width,
+        break_long_words=True,
+        replace_whitespace=True,
+    ) or [normalized]
 
 
 def _write_pdf_objects(pdf_path: Path, objects: list[bytes]) -> None:

@@ -16,6 +16,7 @@ from app.schemas.resume import (
 from app.schemas.selection import (
     MissingRequirement,
     RequirementSupportStatus,
+    SectionEntrySelection,
     SelectionPlan,
     SelectionReason,
 )
@@ -113,6 +114,32 @@ def test_selection_plan_requires_selected_sections_in_order() -> None:
         )
 
 
+def test_selection_plan_rejects_impossible_bullet_counts() -> None:
+    with pytest.raises(ValidationError):
+        SelectionPlan(
+            section_order=["projects"],
+            selected_item_ids={"projects": ["project_1"]},
+            selected_entries={
+                "projects": [
+                    SectionEntrySelection(source_item_id="project_1", bullet_count=7),
+                ]
+            },
+        )
+
+
+def test_selection_plan_rejects_selected_entry_id_mismatch() -> None:
+    with pytest.raises(ValidationError):
+        SelectionPlan(
+            section_order=["projects"],
+            selected_item_ids={"projects": ["project_1"]},
+            selected_entries={
+                "projects": [
+                    SectionEntrySelection(source_item_id="project_2", bullet_count=1),
+                ]
+            },
+        )
+
+
 def test_selection_validation_rejects_empty_selection() -> None:
     plan = SelectionPlan(section_order=["projects"], selected_item_ids={})
 
@@ -177,6 +204,109 @@ def test_resume_content_must_cite_placeholder_source() -> None:
 
     with pytest.raises(BlockedWorkflowError):
         validate_resume_content(template, content, {"project_1", "project_2"})
+
+
+def test_resume_content_rejects_extra_placeholders() -> None:
+    template = TemplatePlan(
+        section_order=["projects"],
+        placeholders=[
+            TemplatePlaceholder(
+                placeholder_id="projects_project_1_bullet_1",
+                source_item_id="project_1",
+                max_words=12,
+                content_type=ContentType.RESUME_BULLET,
+            )
+        ],
+    )
+    content = ResumeContent(
+        placeholder_values=[
+            PlaceholderValue(
+                placeholder_id="projects_project_1_bullet_1",
+                text="Built reliable APIs.",
+                source_item_ids=["project_1"],
+            ),
+            PlaceholderValue(
+                placeholder_id="certifications_fake_cert_title",
+                text="AWS Certified Solutions Architect",
+                source_item_ids=["project_1"],
+            ),
+        ]
+    )
+
+    with pytest.raises(BlockedWorkflowError):
+        validate_resume_content(template, content, {"project_1"})
+
+
+def test_resume_content_rejects_empty_required_placeholder() -> None:
+    template = TemplatePlan(
+        section_order=["projects"],
+        placeholders=[
+            TemplatePlaceholder(
+                placeholder_id="projects_project_1_name",
+                source_item_id="project_1",
+                content_type=ContentType.ENTRY_TITLE,
+                required=True,
+            ),
+            TemplatePlaceholder(
+                placeholder_id="projects_project_1_dates",
+                source_item_id="project_1",
+                content_type=ContentType.DATE_RANGE,
+                required=False,
+            ),
+        ],
+    )
+    content = ResumeContent(
+        placeholder_values=[
+            PlaceholderValue(
+                placeholder_id="projects_project_1_name",
+                text="",
+                source_item_ids=["project_1"],
+            ),
+            PlaceholderValue(
+                placeholder_id="projects_project_1_dates",
+                text="",
+                source_item_ids=["project_1"],
+            ),
+        ]
+    )
+
+    with pytest.raises(BlockedWorkflowError):
+        validate_resume_content(template, content, {"project_1"})
+
+
+def test_resume_content_allows_empty_optional_placeholder() -> None:
+    template = TemplatePlan(
+        section_order=["projects"],
+        placeholders=[
+            TemplatePlaceholder(
+                placeholder_id="projects_project_1_name",
+                source_item_id="project_1",
+                content_type=ContentType.ENTRY_TITLE,
+            ),
+            TemplatePlaceholder(
+                placeholder_id="projects_project_1_dates",
+                source_item_id="project_1",
+                content_type=ContentType.DATE_RANGE,
+                required=False,
+            ),
+        ],
+    )
+    content = ResumeContent(
+        placeholder_values=[
+            PlaceholderValue(
+                placeholder_id="projects_project_1_name",
+                text="Backend Tracker",
+                source_item_ids=["project_1"],
+            ),
+            PlaceholderValue(
+                placeholder_id="projects_project_1_dates",
+                text="",
+                source_item_ids=["project_1"],
+            ),
+        ]
+    )
+
+    validate_resume_content(template, content, {"project_1"})
 
 
 def test_template_and_resume_content_require_placeholders() -> None:

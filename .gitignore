@@ -5,10 +5,11 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .env
+.agents/
+tmp/
 *.db
 *.sqlite
 artifacts/
 dist/
 build/
 *.egg-info/
-

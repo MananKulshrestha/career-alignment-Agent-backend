@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.enums import ResumeLength, StrEnum
@@ -11,6 +13,9 @@ class ContentType(StrEnum):
     SKILL_LIST = "skill_list"
     DATE_RANGE = "date_range"
     ENTRY_TITLE = "entry_title"
+    ENTRY_ORGANIZATION = "entry_organization"
+    LOCATION = "location"
+    TECH_STACK = "tech_stack"
 
 
 class ClaimStrength(StrEnum):
@@ -32,6 +37,10 @@ class TemplatePlaceholder(BaseModel):
     source_item_id: str = Field(min_length=1)
     max_words: int = Field(default=24, ge=1, le=80)
     content_type: ContentType
+    section: str | None = None
+    entry_id: str | None = None
+    field_label: str | None = None
+    required: bool = True
 
 
 class LatexRules(BaseModel):
@@ -45,7 +54,7 @@ class LatexRules(BaseModel):
 class TemplatePlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    template_family: str = "ats_dynamic_latex"
+    template_family: Literal["jakes_resume"] = "jakes_resume"
     page_target: ResumeLength = ResumeLength.ONE_PAGE
     section_order: list[str]
     placeholders: list[TemplatePlaceholder] = Field(min_length=1)
@@ -59,12 +68,28 @@ class TemplatePlan(BaseModel):
             raise ValueError(f"unknown resume sections: {sorted(unknown)}")
         return value
 
+    @model_validator(mode="after")
+    def unique_placeholders(self) -> "TemplatePlan":
+        placeholder_ids = [placeholder.placeholder_id for placeholder in self.placeholders]
+        if len(placeholder_ids) != len(set(placeholder_ids)):
+            raise ValueError("template placeholders cannot contain duplicate placeholder_id values")
+        unknown_sections = {
+            placeholder.section
+            for placeholder in self.placeholders
+            if placeholder.section and placeholder.section not in ALLOWED_RESUME_SECTIONS
+        }
+        if unknown_sections:
+            raise ValueError(
+                f"template placeholders use unknown sections: {sorted(unknown_sections)}"
+            )
+        return self
+
 
 class PlaceholderValue(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     placeholder_id: str = Field(min_length=1)
-    text: str = Field(min_length=1)
+    text: str = ""
     source_item_ids: list[str] = Field(default_factory=list)
     claim_strength: ClaimStrength = ClaimStrength.BALANCED
 
