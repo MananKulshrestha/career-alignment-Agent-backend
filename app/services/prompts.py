@@ -12,6 +12,8 @@ Rules:
 - Include source_section/source_snippet/confidence whenever possible.
 - Set extraction.risk based on extraction quality, not candidate fit.
 - Return valid JSON matching the requested schema.
+- Unless you can point out some issue within the job description set extraction.risk to LOW
+- Keep in mind that setting HIGH OR MEDIUM RISK will trigger a review loop which will be slightly time and resource intensive.
 """
 
 JOB_VERIFICATION_SYSTEM_PROMPT = """

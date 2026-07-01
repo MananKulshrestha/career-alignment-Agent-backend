@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -27,6 +29,8 @@ from app.services.url_normalizer import canonicalize_url, sha256_text
 from app.services.validation import validate_job_spec_handoff
 
 
+logger = logging.getLogger(__name__)
+
 async def ingest_job(session: Session, request: JobIngestRequest) -> JobIngestResponse:
     source_url, source_text, canonical_url, url_hash, source_hash = await _resolve_submission(
         request
@@ -52,6 +56,7 @@ async def ingest_job(session: Session, request: JobIngestRequest) -> JobIngestRe
 
     job_spec = await agent_gateway.extract_job_spec(source_url=source_url, text=source_text)
     if job_spec.extraction.risk in {ExtractionRisk.MEDIUM, ExtractionRisk.HIGH}:
+        logger.info(f"Job extraction resulted in {job_spec.extraction.risk.value} risk. Triggering verification review loop.")
         job_spec = await agent_gateway.verify_job_spec(source_text=source_text, job_spec=job_spec)
     validate_job_spec_handoff(job_spec)
 
