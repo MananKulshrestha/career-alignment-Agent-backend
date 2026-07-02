@@ -58,8 +58,61 @@ class _PdfDot:
 _PdfDrawOp = _PdfText | _PdfRule | _PdfDot
 
 
+@dataclass(frozen=True)
+class _PdfLink:
+    url: str
+    x_start: float
+    y_bottom: float
+    x_end: float
+    y_top: float
+
+
 def escape_latex(value: str) -> str:
     return "".join(LATEX_SPECIAL_CHARS.get(char, char) for char in value)
+
+
+def _get_entry_url_latex(source_item_id: str, profile_by_id: dict[str, ProfileItemRead]) -> str:
+    """Build LaTeX \\href links for a profile item's URLs."""
+    item = profile_by_id.get(source_item_id)
+    if not item:
+        return ""
+    payload = item.payload
+    parts: list[str] = []
+    repo = getattr(payload, "repo_url", None) or ""
+    demo = getattr(payload, "demo_url", None) or ""
+    cred = getattr(payload, "credential_url", None) or ""
+    link = getattr(payload, "url", None) or ""
+    if repo.strip():
+        parts.append(rf"\href{{{repo.strip()}}}{{Repo}}")
+    if demo.strip():
+        parts.append(rf"\href{{{demo.strip()}}}{{Demo}}")
+    if cred.strip():
+        parts.append(rf"\href{{{cred.strip()}}}{{Credential}}")
+    if not parts and link.strip():
+        parts.append(rf"\href{{{link.strip()}}}{{Link}}")
+    return r" \textbar\ ".join(parts)
+
+
+def _get_entry_urls(source_item_id: str, profile_by_id: dict[str, ProfileItemRead]) -> list[tuple[str, str]]:
+    """Return (label, url) pairs for a profile item's URLs."""
+    item = profile_by_id.get(source_item_id)
+    if not item:
+        return []
+    payload = item.payload
+    parts: list[tuple[str, str]] = []
+    repo = getattr(payload, "repo_url", None) or ""
+    demo = getattr(payload, "demo_url", None) or ""
+    cred = getattr(payload, "credential_url", None) or ""
+    link = getattr(payload, "url", None) or ""
+    if repo.strip():
+        parts.append(("Repo", repo.strip()))
+    if demo.strip():
+        parts.append(("Demo", demo.strip()))
+    if cred.strip():
+        parts.append(("Credential", cred.strip()))
+    if not parts and link.strip():
+        parts.append(("Link", link.strip()))
+    return parts
 
 
 def assemble_latex(
@@ -69,6 +122,7 @@ def assemble_latex(
     profile_items: list[ProfileItemRead],
 ) -> str:
     content_by_placeholder = _content_by_placeholder(resume_content, escape=True)
+    profile_by_id = {item.source_item_id: item for item in profile_items}
     lines = _jake_preamble()
     lines.extend(_jake_heading())
 
@@ -85,10 +139,10 @@ def assemble_latex(
                 _render_subheading_section(section, section_placeholders, content_by_placeholder)
             )
         elif section == "projects":
-            lines.extend(_render_projects_section(section_placeholders, content_by_placeholder))
+            lines.extend(_render_projects_section(section_placeholders, content_by_placeholder, profile_by_id))
         elif section in {"achievements", "certifications"}:
             lines.extend(
-                _render_project_like_section(section, section_placeholders, content_by_placeholder)
+                _render_project_like_section(section, section_placeholders, content_by_placeholder, profile_by_id)
             )
 
     lines.append(r"\end{document}")
@@ -260,7 +314,10 @@ def _render_subheading_section(
     return lines
 
 
-def _render_projects_section(placeholders, content_by_placeholder: dict[str, str]) -> list[str]:
+def _render_projects_section(
+    placeholders, content_by_placeholder: dict[str, str],
+    profile_by_id: dict[str, ProfileItemRead],
+) -> list[str]:
     lines = [r"\section{Projects}", r"    \resumeSubHeadingListStart"]
     for entry_placeholders in _group_by_entry(placeholders).values():
         title = _first_content(entry_placeholders, content_by_placeholder, "entry_title")
@@ -268,11 +325,16 @@ def _render_projects_section(placeholders, content_by_placeholder: dict[str, str
         dates = _first_content(entry_placeholders, content_by_placeholder, "date_range")
         heading = rf"\textbf{{{title}}}"
         if tech_stack:
-            heading = rf"{heading} $|$ \emph{{{tech_stack}}}"
+            heading = rf"{heading} \textbar\ \emph{{{tech_stack}}}"
+        source_id = entry_placeholders[0].source_item_id if entry_placeholders else ""
+        url_links = _get_entry_url_latex(source_id, profile_by_id)
+        right_content = dates
+        if url_links:
+            right_content = f"{right_content} {url_links}".strip()
         lines.extend(
             [
                 r"      \resumeProjectHeading",
-                rf"          {{{heading}}}{{{dates}}}",
+                rf"          {{{heading}}}{{{right_content}}}",
             ]
         )
         bullets = _bullet_contents(entry_placeholders, content_by_placeholder)
@@ -285,7 +347,8 @@ def _render_projects_section(placeholders, content_by_placeholder: dict[str, str
 
 
 def _render_project_like_section(
-    section: str, placeholders, content_by_placeholder: dict[str, str]
+    section: str, placeholders, content_by_placeholder: dict[str, str],
+    profile_by_id: dict[str, ProfileItemRead],
 ) -> list[str]:
     lines = [
         rf"\section{{{escape_latex(_section_label(section))}}}",
@@ -299,11 +362,16 @@ def _render_project_like_section(
         dates = _first_content(entry_placeholders, content_by_placeholder, "date_range")
         heading = rf"\textbf{{{title}}}"
         if organization:
-            heading = rf"{heading} $|$ \emph{{{organization}}}"
+            heading = rf"{heading} \textbar\ \emph{{{organization}}}"
+        source_id = entry_placeholders[0].source_item_id if entry_placeholders else ""
+        url_links = _get_entry_url_latex(source_id, profile_by_id)
+        right_content = dates
+        if url_links:
+            right_content = f"{right_content} {url_links}".strip()
         lines.extend(
             [
                 r"      \resumeProjectHeading",
-                rf"          {{{heading}}}{{{dates}}}",
+                rf"          {{{heading}}}{{{right_content}}}",
             ]
         )
         bullets = _bullet_contents(entry_placeholders, content_by_placeholder)
@@ -441,12 +509,12 @@ def render_fallback_pdf(
 ) -> int:
     """Render a Jake-style PDF when a TeX distribution is not installed."""
 
-    pages = _jake_fallback_pages(
+    pages, page_links = _jake_fallback_pages(
         template_plan=template_plan,
         resume_content=resume_content,
         profile_items=profile_items,
     )
-    _write_jake_fallback_pdf(pdf_path, pages)
+    _write_jake_fallback_pdf(pdf_path, pages, page_links)
     log_path.write_text(
         "LaTeX engine was unavailable; generated a Jake-style ATS-readable PDF fallback.\n",
         encoding="utf-8",
@@ -457,6 +525,7 @@ def render_fallback_pdf(
 class _JakeFallbackPdfBuilder:
     def __init__(self) -> None:
         self.pages: list[list[_PdfDrawOp]] = [[]]
+        self.page_links: list[list[_PdfLink]] = [[]]
         self.y_position = PDF_TOP_Y
 
     def center_text(
@@ -583,7 +652,34 @@ class _JakeFallbackPdfBuilder:
         if self.y_position - required_height >= PDF_BOTTOM_Y:
             return
         self.pages.append([])
+        self.page_links.append([])
         self.y_position = PDF_TOP_Y
+
+    def draw_url_links(
+        self, links: list[tuple[str, str]], *, font_size: float = 9.0
+    ) -> None:
+        """Draw right-aligned clickable URL labels on the current heading line."""
+        if not links:
+            return
+        sep = " \u00b7 "
+        # Calculate total width
+        total_w = sum(_pdf_text_width(label, font_size, "F1") for label, _ in links)
+        if len(links) > 1:
+            total_w += _pdf_text_width(sep, font_size, "F1") * (len(links) - 1)
+        # Draw on the line that was just rendered (y was already decremented)
+        y = self.y_position + 12
+        x = PDF_TEXT_RIGHT - total_w
+        for i, (label, url) in enumerate(links):
+            w = _pdf_text_width(label, font_size, "F1")
+            self.pages[-1].append(_PdfText(label, x, y, font_size, "F1"))
+            self.page_links[-1].append(
+                _PdfLink(url=url, x_start=x - 1, y_bottom=y - 2, x_end=x + w + 1, y_top=y + font_size + 2)
+            )
+            x += w
+            if i < len(links) - 1:
+                sw = _pdf_text_width(sep, font_size, "F1")
+                self.pages[-1].append(_PdfText(sep, x, y, font_size, "F1"))
+                x += sw
 
 
 def _jake_fallback_pages(
@@ -593,6 +689,7 @@ def _jake_fallback_pages(
     profile_items: list[ProfileItemRead],
 ) -> list[list[_PdfDrawOp]]:
     content_by_placeholder = _content_by_placeholder(resume_content, escape=False)
+    profile_by_id = {item.source_item_id: item for item in profile_items}
     builder = _JakeFallbackPdfBuilder()
     builder.center_text("Candidate Name", font_size=24, font_name="F2", leading=18)
     builder.center_text(
@@ -667,11 +764,15 @@ def _jake_fallback_pages(
                 if tech_stack:
                     runs.extend([(" | ", "F1"), (tech_stack, "F3")])
                 builder.text_runs(runs, right_text=dates, font_size=10, leading=12)
+                source_id = entry_placeholders[0].source_item_id if entry_placeholders else ""
+                builder.draw_url_links(_get_entry_urls(source_id, profile_by_id))
             else:
                 runs = [(title, "F2")]
                 if organization:
                     runs.extend([(" | ", "F1"), (organization, "F3")])
                 builder.text_runs(runs, right_text=dates, font_size=10, leading=12)
+                source_id = entry_placeholders[0].source_item_id if entry_placeholders else ""
+                builder.draw_url_links(_get_entry_urls(source_id, profile_by_id))
 
             for text in _bullet_contents(entry_placeholders, content_by_placeholder):
                 if not text:
@@ -680,11 +781,15 @@ def _jake_fallback_pages(
             builder.small_gap(3)
         builder.small_gap(4)
     if any(builder.pages):
-        return builder.pages
-    return [[_PdfText("Candidate Name", 244, 744, 24, "F2")]]
+        return builder.pages, builder.page_links
+    return [[_PdfText("Candidate Name", 244, 744, 24, "F2")]], [[]]
 
 
-def _write_jake_fallback_pdf(pdf_path: Path, pages: list[list[_PdfDrawOp]]) -> None:
+def _write_jake_fallback_pdf(
+    pdf_path: Path,
+    pages: list[list[_PdfDrawOp]],
+    page_links: list[list[_PdfLink]] | None = None,
+) -> None:
     objects: list[bytes | None] = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         None,
@@ -693,15 +798,19 @@ def _write_jake_fallback_pdf(pdf_path: Path, pages: list[list[_PdfDrawOp]]) -> N
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Times-Italic /Encoding /WinAnsiEncoding >>",
     ]
     page_refs: list[str] = []
-    for page in pages:
+    for page_idx, page in enumerate(pages):
+        links = page_links[page_idx] if page_links and page_idx < len(page_links) else []
         page_object_number = len(objects) + 1
         content_object_number = page_object_number + 1
+        annot_start = content_object_number + 1
+        annot_refs = [f"{annot_start + i} 0 R" for i in range(len(links))]
         page_refs.append(f"{page_object_number} 0 R")
+        annots_str = f" /Annots [{' '.join(annot_refs)}]" if annot_refs else ""
         objects.append(
             (
                 f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PDF_PAGE_WIDTH:.0f} "
                 f"{PDF_PAGE_HEIGHT:.0f}] /Resources << /Font << /F1 3 0 R "
-                f"/F2 4 0 R /F3 5 0 R >> >> "
+                f"/F2 4 0 R /F3 5 0 R >> >>{annots_str} "
                 f"/Contents {content_object_number} 0 R >>"
             ).encode("ascii")
         )
@@ -715,6 +824,16 @@ def _write_jake_fallback_pdf(pdf_path: Path, pages: list[list[_PdfDrawOp]]) -> N
             + stream
             + b"\nendstream"
         )
+        for lnk in links:
+            escaped_url = lnk.url.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+            objects.append(
+                (
+                    f"<< /Type /Annot /Subtype /Link "
+                    f"/Rect [{lnk.x_start:.1f} {lnk.y_bottom:.1f} {lnk.x_end:.1f} {lnk.y_top:.1f}] "
+                    f"/Border [0 0 0] "
+                    f"/A << /Type /Action /S /URI /URI ({escaped_url}) >> >>"
+                ).encode("ascii")
+            )
 
     objects[1] = (
         f"<< /Type /Pages /Kids [{' '.join(page_refs)}] /Count {len(page_refs)} >>"

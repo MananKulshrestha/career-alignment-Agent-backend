@@ -90,13 +90,6 @@ class JobSpec(BaseModel):
     parsed_markdown: str = Field(min_length=1)
     raw_text_fallback: str | None = None
 
-    @field_validator("required_skills", "responsibilities", "qualifications")
-    @classmethod
-    def require_meaningful_arrays(cls, value: list) -> list:
-        if not value:
-            raise ValueError("field must contain at least one item")
-        return value
-
     @field_validator("ats_keywords", "company_domain_context", mode="before")
     @classmethod
     def normalize_string_lists(cls, value: object) -> object:
