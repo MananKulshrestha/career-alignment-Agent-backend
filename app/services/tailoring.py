@@ -20,8 +20,8 @@ from app.schemas.job_spec import JobSpec
 from app.schemas.resume import CompileResult, ResumeContent, TemplatePlan
 from app.schemas.selection import SelectionApproval, SelectionPlan
 from app.services.agents import agent_gateway
+from app.services.html_renderer import HTML_RENDERER_NAME, compile_resume
 from app.services.job_ingestion import get_latest_job_spec_record
-from app.services.latex import compile_resume
 from app.services.model_run_logger import record_model_run
 from app.services.profile_service import get_profile
 from app.services.template_builder import build_template_plan
@@ -196,7 +196,7 @@ def compile_tailored_resume(
         CompileRun(
             tailoring_session_id=record.id,
             success=result.success,
-            compiler=settings.latex_engine,
+            compiler=HTML_RENDERER_NAME,
             tex_path=result.tex_path,
             pdf_path=result.pdf_path,
             log_path=result.log_path,

@@ -1,0 +1,141 @@
+@page {
+  size: Letter;
+  margin: 0.5in;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  color: #000;
+  font-family: "Latin Modern Roman", "Times New Roman", Times, serif;
+  font-size: 10.5pt;
+  line-height: 1.12;
+}
+
+a {
+  color: #000;
+  text-decoration: none;
+}
+
+.resume-header {
+  margin: 0 0 12pt;
+  text-align: center;
+}
+
+.resume-header h1 {
+  margin: 0;
+  font-size: 24pt;
+  font-variant: small-caps;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.contact-row {
+  margin-top: 2pt;
+  font-size: 9.5pt;
+  line-height: 1.1;
+}
+
+.contact-separator,
+.link-separator {
+  display: inline-block;
+  padding: 0 3pt;
+}
+
+.resume-section {
+  margin: 0 0 7pt;
+}
+
+.resume-section h2 {
+  border-bottom: 0.7pt solid #000;
+  font-size: 11pt;
+  font-variant: small-caps;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.05;
+  margin: 0 0 4pt;
+  padding: 0 0 1pt;
+}
+
+.entry {
+  margin: 0 0 5pt;
+  padding-left: 11pt;
+}
+
+.entry-line {
+  display: table;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.entry-left,
+.entry-right {
+  display: table-cell;
+  vertical-align: top;
+}
+
+.entry-left {
+  overflow-wrap: anywhere;
+  padding-right: 8pt;
+  width: 67%;
+}
+
+.entry-right {
+  text-align: right;
+  white-space: nowrap;
+  width: 33%;
+}
+
+.entry-title {
+  font-weight: 700;
+}
+
+.entry-secondary,
+.tech-stack {
+  font-style: italic;
+}
+
+.separator {
+  padding: 0 2pt;
+}
+
+.project-line {
+  margin-bottom: 1pt;
+}
+
+.bullet-list {
+  margin: 1pt 0 0 15pt;
+  padding: 0;
+}
+
+.bullet-list li {
+  font-size: 9.7pt;
+  line-height: 1.15;
+  margin: 0 0 1pt;
+  padding-left: 1pt;
+}
+
+.skills-list {
+  font-size: 9.8pt;
+  line-height: 1.13;
+  padding-left: 11pt;
+}
+
+.skill-row {
+  margin: 0;
+}
+
+.summary-text {
+  font-size: 9.8pt;
+  line-height: 1.16;
+  margin: 0 0 4pt;
+  padding-left: 11pt;
+}

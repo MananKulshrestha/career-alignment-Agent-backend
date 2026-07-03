@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ name }} Resume</title>
+</head>
+<body>
+  <header class="resume-header">
+    <h1>{{ name }}</h1>
+    {% if contact["items"] %}
+    <div class="contact-row">
+      {% for item in contact["items"] %}
+        {% if item.url %}
+          <a href="{{ item.url }}">{{ item.label }}</a>
+        {% else %}
+          <span>{{ item.label }}</span>
+        {% endif %}
+        {% if not loop.last %}<span class="contact-separator">|</span>{% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </header>
+
+  <main>
+    {% for section_key in section_order %}
+      {% set section = sections.get(section_key) %}
+      {% if section %}
+        <section class="resume-section section-{{ section_key }}">
+          <h2>{{ section.label }}</h2>
+
+          {% if section_key == "technical_skills" %}
+            <div class="skills-list">
+              {% for skill in section.skills %}
+                <div class="skill-row"><strong>{{ skill.label }}:</strong> {{ skill.items }}</div>
+              {% endfor %}
+            </div>
+          {% elif section_key == "summary" %}
+            {% for paragraph in section.paragraphs %}
+              <p class="summary-text">{{ paragraph }}</p>
+            {% endfor %}
+          {% else %}
+            {% for entry in section.entries %}
+              <article class="entry entry-{{ section_key }}">
+                {% if section_key == "education" %}
+                  <div class="entry-line">
+                    <div class="entry-left entry-title">{{ entry.organization }}</div>
+                    <div class="entry-right">{{ entry.location }}</div>
+                  </div>
+                  <div class="entry-line entry-secondary">
+                    <div class="entry-left">{{ entry.title }}</div>
+                    <div class="entry-right">{{ entry.dates }}</div>
+                  </div>
+                {% elif section_key == "experience" %}
+                  <div class="entry-line">
+                    <div class="entry-left entry-title">{{ entry.title }}</div>
+                    <div class="entry-right">{{ entry.dates }}</div>
+                  </div>
+                  <div class="entry-line entry-secondary">
+                    <div class="entry-left">{{ entry.organization }}</div>
+                    <div class="entry-right">{{ entry.location }}</div>
+                  </div>
+                {% else %}
+                  <div class="entry-line project-line">
+                    <div class="entry-left">
+                      <span class="entry-title">{{ entry.title }}</span>
+                      {% if entry.tech_stack %}
+                        <span class="separator">|</span>
+                        <span class="tech-stack">{{ entry.tech_stack }}</span>
+                      {% elif entry.organization %}
+                        <span class="separator">|</span>
+                        <span class="tech-stack">{{ entry.organization }}</span>
+                      {% endif %}
+                    </div>
+                    <div class="entry-right">
+                      {% if entry.dates %}<span>{{ entry.dates }}</span>{% endif %}
+                      {% for link in entry.links %}
+                        {% if entry.dates or not loop.first %}<span class="link-separator">|</span>{% endif %}
+                        <a href="{{ link.url }}">{{ link.label }}</a>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+
+                {% if entry.bullets %}
+                  <ul class="bullet-list">
+                    {% for bullet in entry.bullets %}
+                      <li>{{ bullet }}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+              </article>
+            {% endfor %}
+          {% endif %}
+        </section>
+      {% endif %}
+    {% endfor %}
+  </main>
+</body>
+</html>

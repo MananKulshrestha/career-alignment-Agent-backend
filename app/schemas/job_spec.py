@@ -101,6 +101,12 @@ class JobSpec(BaseModel):
 
     @model_validator(mode="after")
     def ensure_verified_when_low_risk(self) -> "JobSpec":
+        if not self.required_skills:
+            raise ValueError("job_specs must include at least one required skill")
+        if not self.responsibilities:
+            raise ValueError("job_specs must include at least one responsibility")
+        if not self.qualifications:
+            raise ValueError("job_specs must include at least one qualification")
         if self.extraction.risk == ExtractionRisk.LOW and not self.extraction.verified:
             raise ValueError(
                 "low-risk job_specs must still be marked verified by deterministic validation"

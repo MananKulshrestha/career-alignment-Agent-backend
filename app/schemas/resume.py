@@ -129,6 +129,7 @@ class CompileResult(BaseModel):
     success: bool
     pdf_path: str | None = None
     tex_path: str | None = None
+    html_path: str | None = None
     log_path: str | None = None
     page_count: int | None = None
     compiler_output: str = ""

@@ -8,7 +8,7 @@ FastAPI backend for the job ingestion, match filtering, and truthful resume-tail
 - SQLModel over SQLAlchemy for ORM models.
 - PostgreSQL through Supabase in production.
 - Pydantic AI for structured LLM extraction, verification, matching, selection, and wording.
-- LaTeX compilation for ATS-readable PDF artifacts.
+- Jinja2 HTML templates rendered to ATS-readable PDFs with WeasyPrint.
 
 ## Quick Start
 
@@ -30,7 +30,22 @@ See `.env.example` for the full list.
 - `DATABASE_URL`: Supabase Postgres URL.
 - `OPENAI_API_KEY`: key used by Pydantic AI's OpenAI provider.
 - `ENABLE_LLM`: set to `true` when API keys are available.
-- `ARTIFACTS_DIR`: where LaTeX and PDF artifacts are stored.
+- `ARTIFACTS_DIR`: where HTML, PDF, and archival `.tex` resume artifacts are stored.
+
+## Resume Rendering
+
+Resume PDFs are rendered with Jinja2 HTML templates and WeasyPrint. A `resume.tex`
+file is still written beside each PDF for archival/debugging, but no LaTeX engine
+is used to render PDFs.
+
+WeasyPrint requires native Pango/Cairo libraries. Verify the local environment with:
+
+```powershell
+python -m weasyprint --info
+```
+
+`LATEX_ENGINE` is kept only as legacy configuration and is not used by the
+current renderer.
 
 ## API Surface
 

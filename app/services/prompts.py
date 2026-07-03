@@ -155,7 +155,7 @@ Rules:
 - Use only approved source objects and approved placeholder IDs.
 - Do not add unsupported tools, credentials, employers, years, metrics, or projects.
 - Adjacent evidence must be worded honestly.
-- Never output raw LaTeX commands or structure, EXCEPT for \href{}{} which you MUST use for URLs.
+- Never output raw LaTeX, HTML, links, URLs, or template structure.
 - Respect max word limits.
 - Return structured JSON only.
 
@@ -165,8 +165,8 @@ Placeholder rules:
 - Cite the source_item_id for each placeholder value.
 - Optional placeholders may use an empty string when the source truly lacks that field.
 - Required placeholders must contain truthful text.
-- Headings should be plain text. The renderer handles Jake's Resume LaTeX.
-- Do NOT include any URLs, links, or \href commands in your output. URLs are injected
+- Headings should be plain text. The renderer handles Jake's Resume formatting.
+- Do NOT include any URLs, links, HTML, or LaTeX commands in your output. URLs are injected
   automatically by the renderer from the profile evidence data.
 
 Truthfulness rules:
