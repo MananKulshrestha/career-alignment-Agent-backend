@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     job_search_api_url: str | None = None
     job_search_api_key: SecretStr | None = None
 
+    source_documents_dir: Path = Path("./artifacts/source_documents")
+    max_source_document_bytes: int = Field(default=10_000_000, ge=1_000, le=50_000_000)
+    max_source_document_text_chars: int = Field(default=60_000, ge=5_000, le=200_000)
+
     artifacts_dir: Path = Path("./artifacts")
     latex_engine: str = "pdflatex"
     latex_compile_timeout_seconds: int = Field(default=20, ge=5, le=120)

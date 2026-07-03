@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.schemas.job_spec import JobSpec
 from app.schemas.match import MatchAnalysis
 from app.schemas.profile import ProfileItemRead, UserPreference
+from app.schemas.profile_document import ProfileDocumentExtraction, SourceDocumentKind
 from app.schemas.resume import ResumeContent, TemplatePlan
 from app.schemas.selection import SelectionPlan
 from app.services import fallbacks
@@ -17,6 +18,7 @@ from app.services.prompts import (
     JOB_EXTRACTION_SYSTEM_PROMPT,
     JOB_VERIFICATION_SYSTEM_PROMPT,
     MATCH_SYSTEM_PROMPT,
+    PROFILE_DOCUMENT_EXTRACTION_SYSTEM_PROMPT,
     PROMPT_VERSION,
     RESUME_WRITING_SYSTEM_PROMPT,
     SELECTION_SYSTEM_PROMPT,
@@ -94,6 +96,31 @@ class AgentGateway:
             output_type=JobSpec,
             model_name=settings.cheap_model,
             system_prompt=JOB_EXTRACTION_SYSTEM_PROMPT,
+            user_prompt=prompt,
+        )
+
+    async def extract_profile_items_from_document(
+        self,
+        *,
+        document_kind: SourceDocumentKind,
+        text: str,
+    ) -> ProfileDocumentExtraction:
+        if not settings.llm_ready:
+            return fallbacks.fallback_profile_document_extraction(
+                document_kind=document_kind,
+                text=text,
+            )
+        prompt = _json_prompt(
+            {
+                "document_kind": document_kind.value,
+                "document_text": text,
+                "schema": ProfileDocumentExtraction.model_json_schema(),
+            }
+        )
+        return await self._run_structured(
+            output_type=ProfileDocumentExtraction,
+            model_name=settings.reliable_model,
+            system_prompt=PROFILE_DOCUMENT_EXTRACTION_SYSTEM_PROMPT,
             user_prompt=prompt,
         )
 

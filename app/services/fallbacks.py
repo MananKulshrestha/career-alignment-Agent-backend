@@ -13,7 +13,19 @@ from app.schemas.job_spec import (
     TextRequirement,
 )
 from app.schemas.match import AdjacentEvidence, MatchAnalysis, RequirementGap
-from app.schemas.profile import ProfileItemRead, UserPreference
+from app.schemas.profile import ProfileItemKind, ProfileItemPayload, ProfileItemRead, UserPreference
+from app.schemas.profile_document import (
+    ExcludedClaim,
+    ExtractedProfileDraft,
+    ExtractionProvenance,
+    ExtractionSupportLevel,
+    ExtractionWarning,
+    ProfileDocumentExtraction,
+    ReviewRecommendation,
+    SourceDocumentKind,
+    UnresolvedQuestion,
+    WarningSeverity,
+)
 from app.schemas.resume import (
     ClaimStrength,
     ContentType,
@@ -57,6 +69,237 @@ COMMON_SKILLS = [
     "LLM",
     "Pydantic",
 ]
+
+
+def fallback_profile_document_extraction(
+    *,
+    document_kind: SourceDocumentKind,
+    text: str,
+    model_name: str = "deterministic-fallback",
+) -> ProfileDocumentExtraction:
+    del model_name
+    lower_text = text.lower()
+    skills = [skill for skill in COMMON_SKILLS if skill.lower() in lower_text]
+    snippets = _document_snippets(text)
+    drafts: list[ExtractedProfileDraft] = []
+    excluded_claims: list[ExcludedClaim] = []
+    document_warnings = [
+        ExtractionWarning(
+            code="deterministic_fallback",
+            message="LLM extraction is disabled; drafts are conservative and require review.",
+            severity=WarningSeverity.INFO,
+        )
+    ]
+
+    if skills:
+        drafts.append(
+            ExtractedProfileDraft(
+                draft_id="draft_skill_extracted_skills",
+                kind=ProfileItemKind.SKILL,
+                source_item_id="doc_skill_extracted_skills",
+                payload=ProfileItemPayload(
+                    title="Extracted Skills",
+                    skill_category="Extracted Skills",
+                    description=f"Skills mentioned in uploaded document: {', '.join(skills)}.",
+                    skills=skills,
+                    evidence_source=(
+                        "Listed in uploaded source document; confirm practical evidence."
+                    ),
+                ),
+                confidence=0.45,
+                support_level=ExtractionSupportLevel.LISTED_ONLY,
+                review_recommendation=ReviewRecommendation.ASK_USER,
+                provenance=[
+                    ExtractionProvenance(
+                        locator="document text",
+                        section_label="detected skills",
+                        source_snippet=_snippet_for_terms(text, skills) or snippets[0],
+                        confidence=0.45,
+                    )
+                ],
+                warnings=[
+                    ExtractionWarning(
+                        code="listed_only_skills",
+                        message=(
+                            "Skills found by deterministic fallback are listed evidence only "
+                            "until tied to a project, job, or credential."
+                        ),
+                        severity=WarningSeverity.MEDIUM,
+                        field_name="skills",
+                    )
+                ],
+            )
+        )
+
+    if _looks_like_project_text(lower_text):
+        project_skills = skills[:8]
+        title = _extract_labelled_value(text, ("project", "project name")) or "Uploaded Project"
+        drafts.append(
+            ExtractedProfileDraft(
+                draft_id="draft_project_uploaded_project",
+                kind=ProfileItemKind.PROJECT,
+                source_item_id="doc_project_uploaded_project",
+                payload=ProfileItemPayload(
+                    title=title[:120],
+                    description=_first_useful_sentence(text),
+                    skills=project_skills,
+                    tech_stack=project_skills,
+                ),
+                confidence=0.55,
+                support_level=ExtractionSupportLevel.INFERRED,
+                review_recommendation=ReviewRecommendation.NEEDS_EDIT,
+                provenance=[
+                    ExtractionProvenance(
+                        locator="document text",
+                        section_label="project-like text",
+                        source_snippet=snippets[0],
+                        confidence=0.55,
+                    )
+                ],
+                warnings=[
+                    ExtractionWarning(
+                        code="project_needs_review",
+                        message="Confirm project title, ownership, dates, and measurable impact.",
+                        severity=WarningSeverity.MEDIUM,
+                    )
+                ],
+            )
+        )
+
+    if document_kind == SourceDocumentKind.CERTIFICATION or "certification" in lower_text:
+        cert_title = _extract_labelled_value(text, ("certification", "certificate")) or (
+            "Uploaded Certification"
+        )
+        drafts.append(
+            ExtractedProfileDraft(
+                draft_id="draft_certification_uploaded_certification",
+                kind=ProfileItemKind.CERTIFICATION,
+                source_item_id="doc_certification_uploaded_certification",
+                payload=ProfileItemPayload(
+                    title=cert_title[:120],
+                    description=_first_useful_sentence(text),
+                    issuer=_extract_labelled_value(text, ("issuer", "issued by")),
+                ),
+                confidence=0.5,
+                support_level=ExtractionSupportLevel.INFERRED,
+                review_recommendation=ReviewRecommendation.NEEDS_EDIT,
+                provenance=[
+                    ExtractionProvenance(
+                        locator="document text",
+                        section_label="certification-like text",
+                        source_snippet=snippets[0],
+                        confidence=0.5,
+                    )
+                ],
+                warnings=[
+                    ExtractionWarning(
+                        code="certification_needs_details",
+                        message="Confirm issuer, credential date, URL, and criteria.",
+                        severity=WarningSeverity.MEDIUM,
+                    )
+                ],
+            )
+        )
+
+    if "kubernetes" in lower_text and "teammate" in lower_text:
+        excluded_claims.append(
+            ExcludedClaim(
+                claim="Kubernetes ownership",
+                reason=(
+                    "The source mentions Kubernetes near teammate ownership; this is not "
+                    "safe direct user evidence without confirmation."
+                ),
+                provenance=[
+                    ExtractionProvenance(
+                        locator="document text",
+                        source_snippet=_snippet_for_terms(text, ["Kubernetes", "teammate"])
+                        or snippets[0],
+                        confidence=0.75,
+                    )
+                ],
+                severity=WarningSeverity.HIGH,
+            )
+        )
+
+    if not drafts:
+        document_warnings.append(
+            ExtractionWarning(
+                code="no_profile_drafts",
+                message="No obvious profile evidence was found by deterministic fallback.",
+                severity=WarningSeverity.MEDIUM,
+            )
+        )
+
+    return ProfileDocumentExtraction(
+        detected_document_kind=document_kind,
+        document_summary=_first_useful_sentence(text)[:600],
+        overall_confidence=0.45 if drafts else 0.2,
+        extraction_risk="medium" if drafts else "high",
+        draft_items=drafts,
+        excluded_claims=excluded_claims,
+        document_warnings=document_warnings,
+        unresolved_questions=[
+            UnresolvedQuestion(
+                field_name="profile_evidence",
+                question="Which extracted drafts are accurate enough to save to your profile?",
+                priority="high",
+            )
+        ],
+    )
+
+
+def _document_snippets(text: str) -> list[str]:
+    snippets = [line.strip() for line in text.splitlines() if len(line.strip()) >= 20]
+    if not snippets:
+        snippets = [text.strip()]
+    return [snippet[:600] for snippet in snippets if snippet.strip()] or ["Uploaded document text"]
+
+
+def _snippet_for_terms(text: str, terms: list[str]) -> str | None:
+    lower_text = text.lower()
+    for term in terms:
+        index = lower_text.find(term.lower())
+        if index >= 0:
+            start = max(0, index - 160)
+            end = min(len(text), index + 240)
+            return " ".join(text[start:end].split())
+    return None
+
+
+def _first_useful_sentence(text: str) -> str:
+    normalized = " ".join(text.split())
+    for separator in (". ", "\n"):
+        parts = [part.strip(" .") for part in normalized.split(separator) if part.strip()]
+        for part in parts:
+            if len(part) >= 20:
+                return part[:500]
+    return normalized[:500] or "Uploaded source document evidence."
+
+
+def _extract_labelled_value(text: str, labels: tuple[str, ...]) -> str | None:
+    for line in text.splitlines():
+        stripped = line.strip()
+        lowered = stripped.lower()
+        for label in labels:
+            if lowered.startswith(label.lower()):
+                _, _, value = stripped.partition(":")
+                if value.strip():
+                    return value.strip()
+    return None
+
+
+def _looks_like_project_text(lower_text: str) -> bool:
+    return any(
+        signal in lower_text
+        for signal in (
+            "project",
+            "built ",
+            "developed ",
+            "implemented ",
+            "designed ",
+            "deployed ",
+        )
+    )
 
 
 def infer_title_and_company(text: str) -> tuple[str, str]:

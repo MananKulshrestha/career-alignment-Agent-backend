@@ -101,6 +101,62 @@ class UserProfileItem(TimestampMixin, table=True):
     is_active: bool = Field(default=True, index=True)
 
 
+class UserSourceDocument(TimestampMixin, table=True):
+    __tablename__ = "user_source_documents"
+    __table_args__ = (UniqueConstraint("user_id", "file_hash", name="uq_user_source_file_hash"),)
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    user_id: UUID = Field(index=True)
+    kind: str = Field(index=True)
+    filename: str
+    content_type: str | None = None
+    file_hash: str = Field(sa_column=Column(String(64), nullable=False, index=True))
+    storage_path: str
+    extracted_text_hash: str | None = Field(default=None, index=True)
+    character_count: int = Field(default=0, ge=0)
+    status: str = Field(default="uploaded", index=True)
+    parser_warnings: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    error_message: str | None = None
+
+
+class ProfileExtractionRun(TimestampMixin, table=True):
+    __tablename__ = "profile_extraction_runs"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    source_document_id: UUID = Field(foreign_key="user_source_documents.id", index=True)
+    user_id: UUID = Field(index=True)
+    status: str = Field(default="drafted", index=True)
+    model_name: str
+    prompt_version: str
+    schema_version: str = Field(default="1.0", index=True)
+    structured_json: dict[str, Any] = Field(sa_column=Column(JSON, nullable=False))
+    draft_items: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    excluded_claims: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    warnings: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    unresolved_questions: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    approved_draft_ids: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    rejected_draft_ids: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    approval_results: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    success: bool = True
+    error_message: str | None = None
+
+
 class TailoringSession(TimestampMixin, table=True):
     __tablename__ = "tailoring_sessions"
 

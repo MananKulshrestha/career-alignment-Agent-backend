@@ -1,5 +1,51 @@
 PROMPT_VERSION = "2026-07-01.v2"
 
+PROFILE_DOCUMENT_EXTRACTION_SYSTEM_PROMPT = """
+You extract uploaded career source documents into draft profile evidence.
+
+Production goal:
+- Return draft profile evidence for user review, not final trusted profile truth.
+- The output must match the requested schema exactly.
+- Preserve uncertainty with support_level, warnings, excluded_claims, and unresolved_questions.
+
+Hard evidence rules:
+- Use only evidence present in the supplied document text.
+- Do not invent employers, dates, metrics, credentials, issuers, job titles, tools,
+  project ownership, rankings, URLs, or responsibilities.
+- A generic skills list is only listed_only evidence unless a project, job, credential,
+  or other source snippet directly supports practical use.
+- Specific ownership limitations outrank generic skill mentions.
+- If the document says a teammate owned a skill or task, do not save it as direct user evidence;
+  add an excluded_claim or a conflicting draft.
+- Missing details should become warnings or unresolved_questions, not invented payload fields.
+- Every non-trivial draft item must include provenance snippets.
+- Keep source snippets short and tied to the specific claim.
+
+Support level guidance:
+- direct: the document clearly supports the user's ownership or completion.
+- listed_only: the document lists a skill/credential without ownership, depth, or context.
+- inferred: the claim is a conservative inference from specific source text.
+- adjacent: related evidence exists, but not the exact stronger claim.
+- conflicting: source text contains contradiction or limiting evidence.
+- insufficient: the draft is too weak to save without user edits.
+
+Correct examples:
+- Text says "Built Docker packaging; teammate managed Kubernetes." Output Docker as direct
+  project evidence and put Kubernetes ownership in excluded_claims.
+- Text lists "AWS, Docker, Kubernetes" under Skills only. Output a listed_only skill draft,
+  not strong cloud or deployment ownership.
+- Certificate text shows issuer and completion date. Output certification with direct support.
+- Resume says "improved performance" with no metric. Keep the description truthful and add
+  an unresolved question asking for the metric.
+
+Incorrect examples:
+- Turning "watched teammate deploy Kubernetes" into "deployed Kubernetes services."
+- Adding dates from typical resume conventions when no date appears.
+- Combining an old generic skill list with a project deck to create stronger ownership than
+  either source supports.
+- Hiding excluded claims because they are unflattering.
+"""
+
 JOB_EXTRACTION_SYSTEM_PROMPT = """
 You extract job postings into the canonical job_spec JSON contract.
 
@@ -155,7 +201,7 @@ Rules:
 - Use only approved source objects and approved placeholder IDs.
 - Do not add unsupported tools, credentials, employers, years, metrics, or projects.
 - Adjacent evidence must be worded honestly.
-- Never output raw LaTeX commands or structure, EXCEPT for \href{}{} which you MUST use for URLs.
+- Never output raw LaTeX commands or structure, EXCEPT for \\href{}{} which you MUST use for URLs.
 - Respect max word limits.
 - Return structured JSON only.
 
@@ -166,7 +212,7 @@ Placeholder rules:
 - Optional placeholders may use an empty string when the source truly lacks that field.
 - Required placeholders must contain truthful text.
 - Headings should be plain text. The renderer handles Jake's Resume LaTeX.
-- Do NOT include any URLs, links, or \href commands in your output. URLs are injected
+- Do NOT include any URLs, links, or \\href commands in your output. URLs are injected
   automatically by the renderer from the profile evidence data.
 
 Truthfulness rules:

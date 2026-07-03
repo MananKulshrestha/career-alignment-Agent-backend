@@ -31,6 +31,9 @@ See `.env.example` for the full list.
 - `OPENAI_API_KEY`: key used by Pydantic AI's OpenAI provider.
 - `ENABLE_LLM`: set to `true` when API keys are available.
 - `ARTIFACTS_DIR`: where LaTeX and PDF artifacts are stored.
+- `SOURCE_DOCUMENTS_DIR`: where uploaded resume/certification/project source files are stored.
+- `MAX_SOURCE_DOCUMENT_BYTES`: maximum uploaded source document size.
+- `MAX_SOURCE_DOCUMENT_TEXT_CHARS`: maximum extracted text sent to profile extraction.
 
 ## API Surface
 
@@ -42,6 +45,8 @@ See `.env.example` for the full list.
 - `POST /api/v1/jobs/maintenance/sweep-expired`
 - `POST /api/v1/profiles/{user_id}/items`
 - `GET /api/v1/profiles/{user_id}`
+- `POST /api/v1/profiles/{user_id}/source-documents/extract`
+- `POST /api/v1/profiles/{user_id}/source-documents/{document_id}/approve`
 - `POST /api/v1/tailoring/sessions`
 - `POST /api/v1/tailoring/sessions/{session_id}/approve-selection`
 - `POST /api/v1/tailoring/sessions/{session_id}/generate`

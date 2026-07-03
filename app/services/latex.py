@@ -93,7 +93,9 @@ def _get_entry_url_latex(source_item_id: str, profile_by_id: dict[str, ProfileIt
     return r" \textbar\ ".join(parts)
 
 
-def _get_entry_urls(source_item_id: str, profile_by_id: dict[str, ProfileItemRead]) -> list[tuple[str, str]]:
+def _get_entry_urls(
+    source_item_id: str, profile_by_id: dict[str, ProfileItemRead]
+) -> list[tuple[str, str]]:
     """Return (label, url) pairs for a profile item's URLs."""
     item = profile_by_id.get(source_item_id)
     if not item:
@@ -139,10 +141,21 @@ def assemble_latex(
                 _render_subheading_section(section, section_placeholders, content_by_placeholder)
             )
         elif section == "projects":
-            lines.extend(_render_projects_section(section_placeholders, content_by_placeholder, profile_by_id))
+            lines.extend(
+                _render_projects_section(
+                    section_placeholders,
+                    content_by_placeholder,
+                    profile_by_id,
+                )
+            )
         elif section in {"achievements", "certifications"}:
             lines.extend(
-                _render_project_like_section(section, section_placeholders, content_by_placeholder, profile_by_id)
+                _render_project_like_section(
+                    section,
+                    section_placeholders,
+                    content_by_placeholder,
+                    profile_by_id,
+                )
             )
 
     lines.append(r"\end{document}")
@@ -315,7 +328,8 @@ def _render_subheading_section(
 
 
 def _render_projects_section(
-    placeholders, content_by_placeholder: dict[str, str],
+    placeholders,
+    content_by_placeholder: dict[str, str],
     profile_by_id: dict[str, ProfileItemRead],
 ) -> list[str]:
     lines = [r"\section{Projects}", r"    \resumeSubHeadingListStart"]
@@ -347,7 +361,9 @@ def _render_projects_section(
 
 
 def _render_project_like_section(
-    section: str, placeholders, content_by_placeholder: dict[str, str],
+    section: str,
+    placeholders,
+    content_by_placeholder: dict[str, str],
     profile_by_id: dict[str, ProfileItemRead],
 ) -> list[str]:
     lines = [
@@ -655,9 +671,7 @@ class _JakeFallbackPdfBuilder:
         self.page_links.append([])
         self.y_position = PDF_TOP_Y
 
-    def draw_url_links(
-        self, links: list[tuple[str, str]], *, font_size: float = 9.0
-    ) -> None:
+    def draw_url_links(self, links: list[tuple[str, str]], *, font_size: float = 9.0) -> None:
         """Draw right-aligned clickable URL labels on the current heading line."""
         if not links:
             return
@@ -673,7 +687,13 @@ class _JakeFallbackPdfBuilder:
             w = _pdf_text_width(label, font_size, "F1")
             self.pages[-1].append(_PdfText(label, x, y, font_size, "F1"))
             self.page_links[-1].append(
-                _PdfLink(url=url, x_start=x - 1, y_bottom=y - 2, x_end=x + w + 1, y_top=y + font_size + 2)
+                _PdfLink(
+                    url=url,
+                    x_start=x - 1,
+                    y_bottom=y - 2,
+                    x_end=x + w + 1,
+                    y_top=y + font_size + 2,
+                )
             )
             x += w
             if i < len(links) - 1:
