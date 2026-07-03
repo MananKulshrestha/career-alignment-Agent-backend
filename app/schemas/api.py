@@ -10,7 +10,14 @@ from app.core.enums import (
     TailoringStatus,
 )
 from app.schemas.job_spec import JobSpec
-from app.schemas.profile import ProfileItemCreate, ProfileItemRead, UserPreference, UserProfileRead
+from app.schemas.profile import (
+    ProfileItemCreate,
+    ProfileItemRead,
+    UserPreference,
+    UserProfileContextRead,
+    UserProfileContextUpsert,
+    UserProfileRead,
+)
 from app.schemas.resume import CompileResult, ResumeContent, TemplatePlan
 from app.schemas.selection import SelectionApproval, SelectionPlan
 
@@ -96,6 +103,8 @@ class JobListItem(BaseModel):
 
 ProfileItemCreateRequest = ProfileItemCreate
 ProfileItemResponse = ProfileItemRead
+UserProfileContextUpsertRequest = UserProfileContextUpsert
+UserProfileContextResponse = UserProfileContextRead
 UserProfileResponse = UserProfileRead
 
 

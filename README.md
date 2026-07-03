@@ -41,6 +41,7 @@ See `.env.example` for the full list.
 - `POST /api/v1/jobs/{job_id}/match`
 - `POST /api/v1/jobs/maintenance/sweep-expired`
 - `POST /api/v1/profiles/{user_id}/items`
+- `PUT /api/v1/profiles/{user_id}/context`
 - `GET /api/v1/profiles/{user_id}`
 - `POST /api/v1/tailoring/sessions`
 - `POST /api/v1/tailoring/sessions/{session_id}/approve-selection`

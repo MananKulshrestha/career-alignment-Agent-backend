@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.schemas.job_spec import JobSpec
 from app.schemas.match import MatchAnalysis
-from app.schemas.profile import ProfileItemRead, UserPreference
+from app.schemas.profile import ProfileItemRead, UserPreference, UserProfileContextRead
 from app.schemas.resume import ResumeContent, TemplatePlan
 from app.schemas.selection import SelectionPlan
 from app.services import fallbacks
@@ -120,14 +120,18 @@ class AgentGateway:
         job_spec: JobSpec,
         profile_items: list[ProfileItemRead],
         preferences: UserPreference,
+        user_context: UserProfileContextRead | None = None,
     ) -> MatchAnalysis:
         if not settings.llm_ready:
-            return fallbacks.deterministic_match(job_spec, profile_items, preferences)
+            return fallbacks.deterministic_match(
+                job_spec, profile_items, preferences, user_context=user_context
+            )
         prompt = _json_prompt(
             {
                 "job_spec": job_spec.model_dump(mode="json"),
                 "profile_items": [item.model_dump(mode="json") for item in profile_items],
                 "preferences": preferences.model_dump(mode="json"),
+                "user_context": user_context.model_dump(mode="json") if user_context else None,
                 "schema": MatchAnalysis.model_json_schema(),
             }
         )
@@ -143,14 +147,18 @@ class AgentGateway:
         *,
         job_spec: JobSpec,
         profile_items: list[ProfileItemRead],
+        user_context: UserProfileContextRead | None = None,
         research_findings: list[dict[str, Any]] | None = None,
     ) -> SelectionPlan:
         if not settings.llm_ready:
-            return fallbacks.deterministic_selection(job_spec, profile_items)
+            return fallbacks.deterministic_selection(
+                job_spec, profile_items, user_context=user_context
+            )
         prompt = _json_prompt(
             {
                 "job_spec": job_spec.model_dump(mode="json"),
                 "profile_items": [item.model_dump(mode="json") for item in profile_items],
+                "user_context": user_context.model_dump(mode="json") if user_context else None,
                 "research_findings": research_findings or [],
                 "schema": SelectionPlan.model_json_schema(),
             }
@@ -168,10 +176,13 @@ class AgentGateway:
         job_spec: JobSpec,
         template_plan: TemplatePlan,
         approved_profile_items: list[ProfileItemRead],
+        user_context: UserProfileContextRead | None = None,
         revision_request: str | None = None,
     ) -> ResumeContent:
         if not settings.llm_ready:
-            return fallbacks.deterministic_resume_content(template_plan, approved_profile_items)
+            return fallbacks.deterministic_resume_content(
+                template_plan, approved_profile_items, user_context=user_context
+            )
         prompt = _json_prompt(
             {
                 "job_spec": job_spec.model_dump(mode="json"),
@@ -179,6 +190,7 @@ class AgentGateway:
                 "approved_profile_items": [
                     item.model_dump(mode="json") for item in approved_profile_items
                 ],
+                "user_context": user_context.model_dump(mode="json") if user_context else None,
                 "revision_request": revision_request,
                 "schema": ResumeContent.model_json_schema(),
             }

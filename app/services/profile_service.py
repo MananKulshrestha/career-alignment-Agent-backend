@@ -4,7 +4,7 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.models.tables import UserProfileItem, utc_now
+from app.models.tables import UserProfileContext, UserProfileItem, utc_now
 from app.schemas.profile import (
     EvidenceGap,
     EvidenceGapStatus,
@@ -13,6 +13,8 @@ from app.schemas.profile import (
     ProfileItemPayload,
     ProfileItemRead,
     UserPreference,
+    UserProfileContextRead,
+    UserProfileContextUpsert,
     UserProfileRead,
 )
 
@@ -62,8 +64,49 @@ def get_profile(
     return UserProfileRead(
         user_id=str(user_id),
         preferences=preferences or UserPreference(),
+        context=get_profile_context(session, user_id=user_id),
         items=[_profile_item_read(record) for record in records],
     )
+
+
+def upsert_profile_context(
+    session: Session, *, user_id: UUID, request: UserProfileContextUpsert
+) -> UserProfileContextRead:
+    existing = session.exec(
+        select(UserProfileContext).where(UserProfileContext.user_id == user_id)
+    ).first()
+    if existing:
+        existing.abstract = request.abstract
+        existing.specializations = request.specializations
+        existing.career_goals = request.career_goals
+        existing.target_roles = request.target_roles
+        existing.resume_strictness = request.resume_strictness.value
+        existing.tone_preferences = request.tone_preferences
+        existing.avoid_claims = request.avoid_claims
+        existing.updated_at = utc_now()
+        record = existing
+    else:
+        record = UserProfileContext(
+            user_id=user_id,
+            abstract=request.abstract,
+            specializations=request.specializations,
+            career_goals=request.career_goals,
+            target_roles=request.target_roles,
+            resume_strictness=request.resume_strictness.value,
+            tone_preferences=request.tone_preferences,
+            avoid_claims=request.avoid_claims,
+        )
+        session.add(record)
+    session.commit()
+    session.refresh(record)
+    return _context_read(record)
+
+
+def get_profile_context(session: Session, *, user_id: UUID) -> UserProfileContextRead | None:
+    record = session.exec(
+        select(UserProfileContext).where(UserProfileContext.user_id == user_id)
+    ).first()
+    return _context_read(record) if record else None
 
 
 def _profile_item_read(record: UserProfileItem) -> ProfileItemRead:
@@ -74,6 +117,20 @@ def _profile_item_read(record: UserProfileItem) -> ProfileItemRead:
         source_item_id=record.source_item_id,
         payload=record.payload,
         is_active=record.is_active,
+    )
+
+
+def _context_read(record: UserProfileContext) -> UserProfileContextRead:
+    return UserProfileContextRead(
+        id=str(record.id),
+        user_id=str(record.user_id),
+        abstract=record.abstract,
+        specializations=record.specializations or [],
+        career_goals=record.career_goals or [],
+        target_roles=record.target_roles or [],
+        resume_strictness=record.resume_strictness,
+        tone_preferences=record.tone_preferences or [],
+        avoid_claims=record.avoid_claims or [],
     )
 
 

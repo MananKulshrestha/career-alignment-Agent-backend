@@ -22,6 +22,12 @@ class EvidenceGapStatus(StrEnum):
     NOT_APPLICABLE = "not_applicable"
 
 
+class ResumeStrictness(StrEnum):
+    CONSERVATIVE = "conservative"
+    BALANCED = "balanced"
+    ASSERTIVE = "assertive"
+
+
 class EvidenceGap(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -41,6 +47,69 @@ class UserPreference(BaseModel):
     hard_requirements: list[str] = Field(default_factory=list)
     excluded_keywords: list[str] = Field(default_factory=list)
     match_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
+
+
+class UserProfileContextBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    abstract: str | None = Field(default=None, max_length=6000)
+    specializations: list[str] = Field(default_factory=list, max_length=20)
+    career_goals: list[str] = Field(default_factory=list, max_length=10)
+    target_roles: list[str] = Field(default_factory=list, max_length=20)
+    resume_strictness: ResumeStrictness = ResumeStrictness.BALANCED
+    tone_preferences: list[str] = Field(default_factory=list, max_length=10)
+    avoid_claims: list[str] = Field(default_factory=list, max_length=30)
+
+    @field_validator("abstract")
+    @classmethod
+    def normalize_abstract(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("abstract cannot be empty when provided")
+        return cleaned
+
+    @field_validator(
+        "specializations",
+        "career_goals",
+        "target_roles",
+        "tone_preferences",
+        "avoid_claims",
+        mode="before",
+    )
+    @classmethod
+    def normalize_context_list(cls, value: object) -> list[str]:
+        if value is None:
+            raise ValueError("context list fields cannot be null")
+        if not isinstance(value, list):
+            raise ValueError("context list fields must be lists")
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("context list entries must be strings")
+            cleaned = " ".join(item.split())
+            if not cleaned:
+                raise ValueError("context list entries cannot be empty")
+            if len(cleaned) > 120:
+                raise ValueError("context list entries must be 120 characters or fewer")
+            lowered = cleaned.casefold()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            normalized.append(cleaned)
+        return normalized
+
+
+class UserProfileContextUpsert(UserProfileContextBase):
+    pass
+
+
+class UserProfileContextRead(UserProfileContextBase):
+    id: str
+    user_id: str
 
 
 class ProfileItemPayload(BaseModel):
@@ -138,4 +207,5 @@ class UserProfileRead(BaseModel):
 
     user_id: str
     preferences: UserPreference = Field(default_factory=UserPreference)
+    context: UserProfileContextRead | None = None
     items: list[ProfileItemRead] = Field(default_factory=list)

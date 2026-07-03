@@ -77,10 +77,16 @@ class JobSpec(BaseModel):
     location: str | None = None
     remote_policy: RemotePolicy = RemotePolicy.UNKNOWN
     seniority: Seniority = Seniority.UNKNOWN
-    required_skills: list[SkillRequirement] = Field(default_factory=list, validate_default=True)
+    required_skills: list[SkillRequirement] = Field(
+        default_factory=list, min_length=1, validate_default=True
+    )
     nice_to_have_skills: list[SkillRequirement] = Field(default_factory=list)
-    responsibilities: list[TextRequirement] = Field(default_factory=list, validate_default=True)
-    qualifications: list[TextRequirement] = Field(default_factory=list, validate_default=True)
+    responsibilities: list[TextRequirement] = Field(
+        default_factory=list, min_length=1, validate_default=True
+    )
+    qualifications: list[TextRequirement] = Field(
+        default_factory=list, min_length=1, validate_default=True
+    )
     ats_keywords: list[str] = Field(default_factory=list)
     company_domain_context: list[str] = Field(default_factory=list)
     constraints: JobConstraints = Field(default_factory=JobConstraints)

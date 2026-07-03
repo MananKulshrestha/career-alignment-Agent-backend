@@ -140,6 +140,7 @@ async def match_job_for_user(
         job_spec=job_spec,
         profile_items=profile.items,
         preferences=request.preferences,
+        user_context=profile.context,
     )
 
     existing = session.exec(

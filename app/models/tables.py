@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Column, DateTime, String, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, Column, DateTime, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from app.core.enums import (
@@ -99,6 +99,29 @@ class UserProfileItem(TimestampMixin, table=True):
     kind: str = Field(index=True)
     payload: dict[str, Any] = Field(sa_column=Column(JSON, nullable=False))
     is_active: bool = Field(default=True, index=True)
+
+
+class UserProfileContext(TimestampMixin, table=True):
+    __tablename__ = "user_profile_contexts"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_user_profile_context_user"),
+        CheckConstraint(
+            "resume_strictness in ('conservative', 'balanced', 'assertive')",
+            name="chk_user_profile_context_resume_strictness",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    user_id: UUID = Field(index=True)
+    abstract: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    specializations: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    career_goals: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    target_roles: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    resume_strictness: str = Field(default="balanced")
+    tone_preferences: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    avoid_claims: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
 
 
 class TailoringSession(TimestampMixin, table=True):

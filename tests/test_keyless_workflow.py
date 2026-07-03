@@ -5,14 +5,21 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.schemas.api import JobIngestRequest, SubmissionKind, TailoringSessionCreate
-from app.schemas.profile import ProfileItemCreate, ProfileItemKind, ProfileItemPayload
+from app.schemas.profile import (
+    ProfileItemCreate,
+    ProfileItemKind,
+    ProfileItemPayload,
+    ResumeStrictness,
+    UserProfileContextUpsert,
+)
+from app.schemas.resume import ClaimStrength
 from app.schemas.selection import (
     ImprovementSuggestionCategory,
     ResumeImprovementSuggestion,
     SelectionApproval,
 )
 from app.services.job_ingestion import ingest_job, list_jobs
-from app.services.profile_service import add_profile_item
+from app.services.profile_service import add_profile_item, upsert_profile_context
 from app.services.tailoring import (
     approve_selection,
     create_tailoring_session,
@@ -45,6 +52,16 @@ async def test_keyless_text_to_resume_content_workflow() -> None:
                     ),
                     skills=["Python", "FastAPI", "PostgreSQL", "Docker", "REST"],
                 ),
+            ),
+        )
+        upsert_profile_context(
+            session,
+            user_id=user_id,
+            request=UserProfileContextUpsert(
+                abstract="Backend engineer targeting reliable API roles.",
+                target_roles=["Backend Engineer"],
+                resume_strictness=ResumeStrictness.CONSERVATIVE,
+                avoid_claims=["leadership"],
             ),
         )
 
@@ -119,3 +136,6 @@ async def test_keyless_text_to_resume_content_workflow() -> None:
         assert generated.selection_plan is not None
         assert generated.selection_plan.user_improvement_suggestions
         assert content.placeholder_values
+        assert {value.claim_strength for value in content.placeholder_values} == {
+            ClaimStrength.CONSERVATIVE
+        }

@@ -30,6 +30,7 @@ from app.services.validation import (
     validate_missing_requirements_preserved,
     validate_resume_content,
     validate_selection_source_ids,
+    validate_user_context_constraints,
 )
 
 
@@ -49,6 +50,7 @@ async def create_tailoring_session(
     selection_plan = await agent_gateway.create_selection_plan(
         job_spec=job_spec,
         profile_items=profile.items,
+        user_context=profile.context,
     )
     validate_selection_source_ids(selection_plan, {item.source_item_id for item in profile.items})
 
@@ -135,9 +137,11 @@ async def generate_resume_content(
         job_spec=job_spec,
         template_plan=template_plan,
         approved_profile_items=approved_items,
+        user_context=profile.context,
         revision_request=revision_request,
     )
     validate_resume_content(template_plan, content, approved_ids)
+    validate_user_context_constraints(content, approved_items, profile.context)
 
     record.resume_content = content.model_dump(mode="json")
     record.status = TailoringStatus.CONTENT_DRAFT.value
@@ -178,6 +182,7 @@ def compile_tailored_resume(
     }
     approved_items = [item for item in profile.items if item.source_item_id in approved_ids]
     validate_resume_content(template_plan, resume_content, approved_ids)
+    validate_user_context_constraints(resume_content, approved_items, profile.context)
 
     result = compile_resume(
         session_id=record.id,

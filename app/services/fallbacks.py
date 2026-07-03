@@ -13,7 +13,7 @@ from app.schemas.job_spec import (
     TextRequirement,
 )
 from app.schemas.match import AdjacentEvidence, MatchAnalysis, RequirementGap
-from app.schemas.profile import ProfileItemRead, UserPreference
+from app.schemas.profile import ProfileItemRead, UserPreference, UserProfileContextRead
 from app.schemas.resume import (
     ClaimStrength,
     ContentType,
@@ -173,21 +173,13 @@ def deterministic_match(
     job_spec: JobSpec,
     profile_items: list[ProfileItemRead],
     preferences: UserPreference,
+    *,
+    user_context: UserProfileContextRead | None = None,
 ) -> MatchAnalysis:
-    profile_chunks: list[str] = []
-    for item in profile_items:
-        profile_chunks.extend(
-            [
-                item.payload.description,
-                " ".join(item.payload.skills),
-                " ".join(item.payload.achievements),
-                " ".join(item.payload.metrics),
-            ]
-        )
-    profile_text = " ".join(profile_chunks).lower()
+    evidence_text = _profile_evidence_text(profile_items)
     required = [skill.name for skill in job_spec.required_skills]
-    covered = [skill for skill in required if skill.lower() in profile_text]
-    missing = [skill for skill in required if skill.lower() not in profile_text]
+    covered = [skill for skill in required if skill.lower() in evidence_text]
+    missing = [skill for skill in required if skill.lower() not in evidence_text]
 
     preference_failures: list[str] = []
     if preferences.excluded_keywords:
@@ -226,18 +218,24 @@ def deterministic_match(
         )
         for skill in missing[:5]
     ]
+    context_note = _context_match_note(user_context)
     return MatchAnalysis(
         match_score=round(score, 2),
         match_verdict=verdict,
         preference_failures=preference_failures,
         missing_requirements=gaps,
         adjacent_evidence=adjacent,
-        short_explanation=f"Matched {len(covered)} of {len(required)} required skill signals.",
+        short_explanation=(
+            f"Matched {len(covered)} of {len(required)} required skill signals.{context_note}"
+        ),
     )
 
 
 def deterministic_selection(
-    job_spec: JobSpec, profile_items: list[ProfileItemRead]
+    job_spec: JobSpec,
+    profile_items: list[ProfileItemRead],
+    *,
+    user_context: UserProfileContextRead | None = None,
 ) -> SelectionPlan:
     selected: dict[str, list[str]] = {
         "education": [],
@@ -249,6 +247,7 @@ def deterministic_selection(
     }
     reasons: list[SelectionReason] = []
     required_text = " ".join(skill.name.lower() for skill in job_spec.required_skills)
+    context_terms = _context_priority_terms(user_context)
 
     for item in profile_items:
         section = {
@@ -262,7 +261,9 @@ def deterministic_selection(
         if not section:
             continue
         item_text = f"{item.payload.description} {' '.join(item.payload.skills)}".lower()
-        if any(token in item_text for token in required_text.split()) or len(selected[section]) < 2:
+        has_required_signal = any(token in item_text for token in required_text.split())
+        has_context_signal = any(term in item_text for term in context_terms)
+        if has_required_signal or has_context_signal or len(selected[section]) < 2:
             selected[section].append(item.source_item_id)
             reasons.append(
                 SelectionReason(
@@ -287,9 +288,7 @@ def deterministic_selection(
         ]
         if section in selected
     ]
-    profile_text = " ".join(
-        f"{item.payload.description} {' '.join(item.payload.skills)}" for item in profile_items
-    ).lower()
+    evidence_text = _profile_evidence_text(profile_items)
     missing = [
         MissingRequirement(
             requirement=skill.name,
@@ -298,7 +297,7 @@ def deterministic_selection(
             resume_policy=f"Do not claim {skill.name} unless the user adds supporting evidence.",
         )
         for skill in job_spec.required_skills
-        if skill.name.lower() not in profile_text
+        if skill.name.lower() not in evidence_text
     ]
     missing_names = {gap.requirement.lower() for gap in missing}
     selected_entries = {
@@ -340,9 +339,13 @@ def deterministic_selection(
 
 
 def deterministic_resume_content(
-    template_plan: TemplatePlan, profile_items: list[ProfileItemRead]
+    template_plan: TemplatePlan,
+    profile_items: list[ProfileItemRead],
+    *,
+    user_context: UserProfileContextRead | None = None,
 ) -> ResumeContent:
     by_source_id = {item.source_item_id: item for item in profile_items}
+    claim_strength = _claim_strength_for_context(user_context)
     values: list[PlaceholderValue] = []
     for placeholder in template_plan.placeholders:
         item = by_source_id.get(placeholder.source_item_id)
@@ -355,7 +358,7 @@ def deterministic_resume_content(
                 placeholder_id=placeholder.placeholder_id,
                 text=_finalize_placeholder_text(" ".join(words), placeholder.content_type),
                 source_item_ids=[item.source_item_id],
-                claim_strength=ClaimStrength.BALANCED,
+                claim_strength=claim_strength,
             )
         )
     return ResumeContent(
@@ -473,3 +476,89 @@ def _finalize_placeholder_text(text: str, content_type: ContentType) -> str:
     if content_type == ContentType.RESUME_BULLET:
         return clean.rstrip(".") + "."
     return clean
+
+
+def _profile_evidence_text(profile_items: list[ProfileItemRead]) -> str:
+    chunks = [_evidence_text_for_item(item) for item in profile_items]
+    return " ".join(chunks).lower()
+
+
+def _evidence_text_for_item(item: ProfileItemRead) -> str:
+    payload = item.payload
+    values = [
+        payload.description,
+        payload.title,
+        payload.organization,
+        payload.problem,
+        payload.target_users,
+        payload.role,
+        payload.architecture,
+        payload.measurable_impact,
+        payload.collaboration,
+        payload.constraints_tradeoffs,
+        payload.employer,
+        payload.job_title,
+        payload.employment_type,
+        payload.team_scope,
+        payload.promotions_ownership,
+        payload.cross_functional_work,
+        payload.school,
+        payload.degree,
+        payload.gpa,
+        payload.skill_category,
+        payload.proficiency,
+        payload.evidence_source,
+        payload.issuer,
+        payload.criteria,
+        payload.ranking_score,
+        payload.research_topic,
+        payload.source_name,
+        payload.relevance,
+        payload.limitations,
+    ]
+    list_values = [
+        payload.skills,
+        payload.achievements,
+        payload.metrics,
+        payload.tech_stack,
+        payload.features,
+        payload.responsibilities,
+        payload.tools_used,
+        payload.outcomes,
+        payload.coursework,
+        payload.honors,
+        payload.key_findings,
+    ]
+    chunks = [value for value in values if value]
+    chunks.extend(" ".join(values) for values in list_values if values)
+    return " ".join(chunks)
+
+
+def _context_priority_terms(user_context: UserProfileContextRead | None) -> list[str]:
+    if not user_context:
+        return []
+    values = [
+        *user_context.specializations,
+        *user_context.career_goals,
+        *user_context.target_roles,
+    ]
+    return [value.lower() for value in values if value.strip()]
+
+
+def _context_match_note(user_context: UserProfileContextRead | None) -> str:
+    if not user_context or not user_context.target_roles:
+        return ""
+    roles = ", ".join(user_context.target_roles[:3])
+    return f" User context target roles considered: {roles}."
+
+
+def _claim_strength_for_context(
+    user_context: UserProfileContextRead | None,
+) -> ClaimStrength:
+    if not user_context:
+        return ClaimStrength.BALANCED
+    if user_context.resume_strictness == "conservative":
+        return ClaimStrength.CONSERVATIVE
+    if user_context.resume_strictness == "assertive":
+        return ClaimStrength.ASSERTIVE
+    return ClaimStrength.BALANCED

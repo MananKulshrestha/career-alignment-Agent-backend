@@ -1,10 +1,38 @@
 from __future__ import annotations
 
+import re
+from typing import Any
+
 from app.core.enums import ExtractionRisk
 from app.core.errors import BlockedWorkflowError
 from app.schemas.job_spec import SUPPORTED_JOB_SPEC_VERSION, JobSpec
+from app.schemas.profile import ProfileItemRead, UserProfileContextRead
 from app.schemas.resume import ResumeContent, TemplatePlan
 from app.schemas.selection import SelectionPlan
+
+HIGH_RISK_CONTEXT_TERMS = {
+    "aws",
+    "azure",
+    "django",
+    "docker",
+    "fastapi",
+    "flask",
+    "gcp",
+    "graphql",
+    "java",
+    "javascript",
+    "kubernetes",
+    "llm",
+    "machine learning",
+    "next.js",
+    "postgresql",
+    "python",
+    "react",
+    "redis",
+    "rest",
+    "sql",
+    "typescript",
+}
 
 
 def validate_job_spec_handoff(job_spec: JobSpec) -> None:
@@ -146,3 +174,99 @@ def validate_resume_content(
     ]
     if too_long:
         raise BlockedWorkflowError(f"resume_content exceeds word limits: {sorted(too_long)}")
+
+
+def validate_user_context_constraints(
+    resume_content: ResumeContent,
+    approved_profile_items: list[ProfileItemRead],
+    user_context: UserProfileContextRead | None,
+) -> None:
+    if not user_context:
+        return
+
+    profile_by_source_id = {item.source_item_id: item for item in approved_profile_items}
+    context_terms = _context_only_terms(user_context)
+    avoided_terms = _avoid_claim_terms(user_context)
+
+    for value in resume_content.placeholder_values:
+        text = value.text
+        if not text.strip():
+            continue
+        cited_evidence_text = " ".join(
+            _profile_item_evidence_text(profile_by_source_id[source_id])
+            for source_id in value.source_item_ids
+            if source_id in profile_by_source_id
+        )
+        for term in context_terms:
+            if _contains_term(text, term) and not _contains_term(cited_evidence_text, term):
+                raise BlockedWorkflowError(
+                    f"resume_content uses context-only claim {term!r} in {value.placeholder_id}"
+                )
+        for term in avoided_terms:
+            if _contains_term(text, term):
+                raise BlockedWorkflowError(
+                    f"resume_content uses avoided claim {term!r} in {value.placeholder_id}"
+                )
+
+
+def _context_only_terms(user_context: UserProfileContextRead) -> set[str]:
+    terms = {
+        _normalize_term(value)
+        for value in [
+            *user_context.specializations,
+            *user_context.career_goals,
+            *user_context.target_roles,
+        ]
+        if _normalize_term(value)
+    }
+    abstract = user_context.abstract or ""
+    abstract_lower = abstract.lower()
+    for term in HIGH_RISK_CONTEXT_TERMS:
+        if _contains_term(abstract_lower, term):
+            terms.add(term)
+    return terms
+
+
+def _avoid_claim_terms(user_context: UserProfileContextRead) -> set[str]:
+    terms = {
+        _normalize_term(value) for value in user_context.avoid_claims if _normalize_term(value)
+    }
+    leadership_terms = {"lead", "leader", "leaders", "leading", "leadership", "led"}
+    if terms & leadership_terms or "leadership" in terms:
+        terms.update(leadership_terms)
+    return terms
+
+
+def _profile_item_evidence_text(item: ProfileItemRead) -> str:
+    return " ".join(_flatten_strings(item.payload.model_dump(mode="json"))).lower()
+
+
+def _flatten_strings(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        results: list[str] = []
+        for item in value:
+            results.extend(_flatten_strings(item))
+        return results
+    if isinstance(value, dict):
+        results = []
+        for item in value.values():
+            results.extend(_flatten_strings(item))
+        return results
+    return [str(value)]
+
+
+def _normalize_term(value: str) -> str:
+    return " ".join(value.lower().split())
+
+
+def _contains_term(text: str, term: str) -> bool:
+    normalized_text = text.lower()
+    normalized_term = _normalize_term(term)
+    if not normalized_term:
+        return False
+    escaped = re.escape(normalized_term).replace(r"\ ", r"\s+")
+    return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", normalized_text) is not None

@@ -59,13 +59,17 @@ Incorrect examples:
 """
 
 MATCH_SYSTEM_PROMPT = """
-You compare a job_spec with a user's preferences and profile evidence.
+You compare a job_spec with a user's preferences, optional user context, and profile evidence.
 
 Rules:
 - Score fit conservatively from 0 to 1.
 - Keep hard preference failures separate from missing job requirements.
 - Missing requirements remain gaps unless profile evidence supports them.
 - Adjacent evidence may be listed, but it must not become a fake resume claim.
+- User context may explain goals, target roles, specializations, tone, and strictness.
+- User context is not profile evidence and must not satisfy a job requirement by itself.
+- If a skill appears only in user context and not in profile evidence, mark it missing or
+  needs user input instead of supported.
 - Return structured JSON only.
 
 Evidence categories:
@@ -83,6 +87,7 @@ Correct examples:
 Incorrect examples:
 - Raising fit score because the user wants the job.
 - Treating a listed skill as supported because it appears in a project title only.
+- Treating "I specialize in Kubernetes" from user context as Kubernetes evidence.
 """
 
 SELECTION_SYSTEM_PROMPT = """
@@ -100,9 +105,13 @@ The deterministic builder will turn your plan into Jake's Resume placeholders. Y
 
 Hard rules:
 - Select only provided profile source_item_id values.
+- Never select user_context as an item; it has no source_item_id and is not resume evidence.
 - Keep missing requirements visible.
 - Do not select weak evidence just to fill space.
 - Prefer direct evidence, then adjacent evidence if it can be written honestly.
+- Use user_context only to guide emphasis, target-role alignment, ordering, tone, and
+  strictness among evidence-backed options.
+- Do not hide a missing requirement because it appears only in user_context.
 - Use one page by default for students, early-career candidates, and sparse profiles.
 - Do not output LaTeX, raw template text, or final bullets.
 - Return structured JSON only.
@@ -146,6 +155,7 @@ Incorrect examples:
 - Adding a certification section when no certification source item exists.
 - Selecting source_item_id values not present in the supplied profile.
 - Hiding missing requirements to make the resume look stronger.
+- Selecting or citing user_context as if it were a project, job, certification, or skill item.
 """
 
 RESUME_WRITING_SYSTEM_PROMPT = """
@@ -155,6 +165,11 @@ Rules:
 - Use only approved source objects and approved placeholder IDs.
 - Do not add unsupported tools, credentials, employers, years, metrics, or projects.
 - Adjacent evidence must be worded honestly.
+- User context may guide tone, emphasis, target-role framing, and claim strength.
+- User context is not evidence. Do not introduce context-only tools, credentials,
+  employers, dates, metrics, projects, or responsibilities into resume text.
+- Treat avoid_claims in user_context as hard negative guidance.
+- resume_strictness controls phrasing conservatism only; it never permits unsupported claims.
 - Never output raw LaTeX commands or structure, EXCEPT for \href{}{} which you MUST use for URLs.
 - Respect max word limits.
 - Return structured JSON only.
@@ -201,4 +216,6 @@ Incorrect examples:
 - Adding a third project when the template has two project entries.
 - Adding raw commands like \\resumeItem or \\section.
 - Turning "used SQL in coursework" into "owned production PostgreSQL architecture."
+- Writing "Deployed Kubernetes workloads" because user_context says the user wants to
+  specialize in Kubernetes, when approved source objects do not support Kubernetes.
 """
